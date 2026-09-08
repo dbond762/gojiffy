@@ -1,0 +1,129 @@
+{{define "layout"}}<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.Title}} — {{app}}</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body class="bg-gray-50">
+
+<div class="flex min-h-screen flex-col lg:h-screen lg:flex-row lg:overflow-hidden">
+	{{/* На узком экране сайдбар — полоса сверху: прятать его в бургер значило бы
+	   тащить js, а пунктов немного и они помещаются в строку. */}}
+	<aside class="w-full shrink-0 border-b border-gray-200 bg-white px-5 lg:h-screen lg:w-[260px] lg:overflow-y-auto lg:border-r lg:border-b-0">
+		{{/* отступы на контейнере, а не на ссылке: иначе рамка фокуса растягивается
+		   на всю ширину сайдбара и читается как выделение его границы */}}
+		<div class="flex items-center gap-6 py-4 lg:block lg:pt-8 lg:pb-0">
+			<a href="/" class="text-title-sm shrink-0 font-semibold tracking-tight text-gray-800 uppercase lg:mb-7 lg:inline-block">{{app}}</a>
+
+			<nav class="min-w-0 flex-1">
+				<h3 class="text-theme-xs mb-4 hidden uppercase text-gray-400 lg:block">{{t "Menu"}}</h3>
+				<ul class="flex gap-1 overflow-x-auto no-scrollbar lg:flex-col">
+					{{range .Menu}}
+					<li><a href="{{.Href}}" class="menu-item whitespace-nowrap {{if .Active}}menu-item-active{{else}}menu-item-inactive{{end}}">{{.Title}}</a></li>
+					{{end}}
+				</ul>
+			</nav>
+		</div>
+	</aside>
+
+	{{/* tabindex=-1: колонка прокручивается сама, а такие контейнеры Chrome
+	   включает в обход по Tab и обводит рамкой во весь экран. Внутри хватает
+	   фокусируемых элементов, отдельная остановка на пустом месте только мешает. */}}
+	<div tabindex="-1" class="relative flex flex-1 flex-col lg:overflow-x-hidden lg:overflow-y-auto">
+		<header class="sticky top-0 z-30 flex w-full items-center justify-between gap-4 border-b border-gray-200 bg-white px-4 py-3 md:px-6">
+			<nav class="min-w-0">
+				<ol class="text-theme-sm flex flex-wrap items-center gap-1.5">
+					{{- if .Crumbs}}
+						{{- range $i, $c := .Crumbs}}
+							{{- if $i}}<li class="text-gray-400">/</li>{{end}}
+							{{/* синим, как ссылки в таблицах: серым они не отличались от текущей страницы */}}
+							{{- if $c.Href}}<li><a class="text-brand-500 hover:text-brand-600" href="{{$c.Href}}">{{$c.Title}}</a></li>
+							{{- else}}<li class="text-gray-800">{{$c.Title}}</li>{{end}}
+						{{- end}}
+					{{- else}}<li class="text-gray-800">{{.Title}}</li>{{end}}
+				</ol>
+			</nav>
+
+			<div class="flex shrink-0 items-center gap-4">
+				{{with .UserName}}<span class="text-theme-sm font-medium text-gray-700">{{.}}</span>{{end}}
+				<form method="post" action="/logout">
+					<input type="hidden" name="_csrf" value="{{.CSRF}}">
+					<button type="submit" class="btn-link">{{t "Log out"}}</button>
+				</form>
+			</div>
+		</header>
+
+		<main class="p-4 md:p-6">
+			{{block "content" .}}{{end}}
+		</main>
+	</div>
+</div>
+
+{{/* Кнопки строк таблицы отправляют её через form/formaction: сама таблица уже
+   завёрнута в форму поиска, а вложенные формы в HTML запрещены. */}}
+<form id="post-action" method="post" hidden><input type="hidden" name="_csrf" value="{{.CSRF}}"></form>
+
+<dialog id="confirm" class="m-auto w-[calc(100%-2rem)] max-w-md rounded-2xl border-0 bg-white p-6 shadow-theme-lg backdrop:bg-gray-900/50">
+	<h4 class="text-theme-xl font-semibold text-gray-800">{{t "Confirm"}}</h4>
+	<p class="msgbox-text mt-2 text-theme-sm text-gray-500"></p>
+	<div class="mt-6 flex justify-end gap-3">
+		<button type="button" class="btn" autofocus>{{t "Cancel"}}</button>
+		<button type="button" class="btn btn-primary" data-yes>{{t "Yes"}}</button>
+	</div>
+</dialog>
+
+<script>
+// Ячейка целиком — ссылка, поэтому выделение текста мышью заканчивается кликом по ней.
+// Гасим переход, только когда внутри ссылки действительно осталось выделение:
+// у клика с клавиатуры и у обычного клика мышью выделение пустое, они проходят как обычно.
+addEventListener("click", e => {
+	const link = e.target.closest(".table a");
+	if (!link || e.detail === 0) return; // detail 0 — это клавиатура, ей мешать не за чем
+
+	const sel = getSelection();
+	if (sel.isCollapsed || sel.toString().trim() === "") return;
+	if (link.contains(sel.anchorNode) && link.contains(sel.focusNode)) e.preventDefault();
+});
+
+// Кнопка «Скопировать» рядом с полем: выделяем значение (тогда сработает и Ctrl+C,
+// если clipboard-api недоступен — она требует https или localhost) и кладём в буфер.
+addEventListener("click", async e => {
+	const btn = e.target.closest("[data-copy]");
+	if (!btn) return;
+
+	const input = document.getElementById(btn.dataset.copy);
+	input.select();
+	try {
+		await navigator.clipboard.writeText(input.value);
+		btn.textContent = "{{t "Copied"}}";
+	} catch {}
+});
+
+// Форма с data-confirm сначала спрашивает. Нативный <dialog> даёт модальность,
+// затемнение, Esc и возврат фокуса даром — Esc просто закрывает, ничего не отправив.
+// form.submit() событие submit не поднимает, поэтому второй раз не спросит.
+addEventListener("submit", e => {
+	const form = e.target, sender = e.submitter;
+	const text = sender?.dataset.confirm || form.dataset.confirm;
+	if (!text) return;
+	e.preventDefault();
+
+	const box = document.getElementById("confirm");
+	box.querySelector(".msgbox-text").textContent = text;
+	box.onclick = ev => { // перезаписываем, чтобы замкнуться на текущую форму
+		const btn = ev.target.closest("button");
+		if (!btn) return;
+		box.close();
+		if (!btn.hasAttribute("data-yes")) return;
+		// form.submit() отправителя не помнит, поэтому его formaction переносим сами
+		if (sender?.hasAttribute("formaction")) form.action = sender.formAction;
+		form.submit();
+	};
+	box.showModal();
+});
+</script>
+
+</body>
+</html>{{end}}

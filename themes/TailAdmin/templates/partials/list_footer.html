@@ -1,0 +1,18 @@
+{{define "list-footer"}}
+<div class="flex flex-wrap items-center justify-between gap-3 border-t border-gray-200 px-5 py-4">
+	<div class="text-theme-sm text-gray-500">
+		{{.Text}}
+	</div>
+	{{if .Pages}}
+	<nav class="flex items-center gap-1">
+		{{if .Prev}}<a class="btn btn-sm" href="{{.Prev}}">{{t "Previous"}}</a>{{else}}<span class="btn btn-sm opacity-50">{{t "Previous"}}</span>{{end}}
+		{{range .Pages}}
+			{{- if .Current}}<span class="btn btn-sm btn-primary">{{.Title}}</span>
+			{{- else if .Href}}<a class="btn btn-sm" href="{{.Href}}">{{.Title}}</a>
+			{{- else}}<span class="px-2 text-gray-400">{{.Title}}</span>{{end}}
+		{{end}}
+		{{if .Next}}<a class="btn btn-sm" href="{{.Next}}">{{t "Next"}}</a>{{else}}<span class="btn btn-sm opacity-50">{{t "Next"}}</span>{{end}}
+	</nav>
+	{{end}}
+</div>
+{{end}}

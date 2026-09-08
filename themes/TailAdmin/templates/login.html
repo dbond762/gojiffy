@@ -1,0 +1,20 @@
+{{define "login.html"}}<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{t "Sign in"}} — {{app}}</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body class="bg-gray-50">
+
+<div class="flex min-h-screen items-center justify-center p-6">
+	<div class="login w-full max-w-md rounded-2xl border border-gray-200 bg-white p-8">
+		<h1 class="text-title-sm mb-2 font-semibold text-gray-800">{{t "Sign in"}}</h1>
+		<p class="mb-7 text-theme-sm text-gray-500">{{t "Enter your login and password"}}</p>
+		{{template "form" .}}
+	</div>
+</div>
+
+</body>
+</html>{{end}}

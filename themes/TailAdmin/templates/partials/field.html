@@ -1,0 +1,16 @@
+{{define "field"}}
+<div class="mb-5">
+	<label class="field-label" for="f-{{.Name}}">{{.Label}}{{if .Required}} <span class="text-error-500">*</span>{{end}}</label>
+	{{if .Options}}
+	<select class="field-select{{if .Error}} border-error-500{{end}}" id="f-{{.Name}}" name="{{.Name}}"{{if .Required}} required{{end}}>
+		{{range .Options}}<option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>{{end}}
+	</select>
+	{{else if eq .Type "textarea"}}
+	<textarea class="field-input h-auto{{if .Error}} border-error-500{{end}}" id="f-{{.Name}}" name="{{.Name}}" rows="4"{{if .Required}} required{{end}}>{{.Value}}</textarea>
+	{{else}}
+	<input class="field-input{{if .Error}} border-error-500{{end}}" id="f-{{.Name}}" name="{{.Name}}" type="{{.Type}}" value="{{.Value}}"{{with .Autocomplete}} autocomplete="{{.}}"{{end}}{{if .Required}} required{{end}}{{if .Readonly}} readonly{{end}}>
+	{{end}}
+	{{if .Error}}<p class="mt-1.5 text-theme-xs text-error-500">{{.Error}}</p>
+	{{else if .Help}}<p class="mt-1.5 text-theme-xs text-gray-500">{{.Help}}</p>{{end}}
+</div>
+{{end}}

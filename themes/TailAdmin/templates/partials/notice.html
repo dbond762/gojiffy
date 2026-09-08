@@ -1,0 +1,17 @@
+{{/* Выделенный блок над панелью: одноразовый секрет и подобное. */}}
+{{define "notice"}}
+{{- with .}}
+<div class="mb-6 rounded-xl border border-success-500 bg-success-50 p-5">
+	<h4 class="text-theme-xl font-semibold text-success-700">{{.Title}}</h4>
+	{{with .Code}}
+	<div class="mt-3 flex">
+		{{/* не field-input: у readonly-полей он серый, а секрет читают и копируют */}}
+		<input id="notice-code" type="text" value="{{.}}" readonly
+			class="text-theme-sm shadow-theme-xs h-11 min-w-0 flex-1 rounded-lg rounded-r-none border border-success-500 bg-white px-4 py-2.5 font-mono text-gray-800 focus:outline-hidden">
+		<button type="button" class="btn rounded-l-none border-success-500" data-copy="notice-code">Скопировать</button>
+	</div>
+	{{end}}
+	{{with .Text}}<p class="mt-3 text-theme-sm text-success-700">{{.}}</p>{{end}}
+</div>
+{{end -}}
+{{end}}

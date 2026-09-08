@@ -1,0 +1,41 @@
+{{define "table"}}
+{{/* пустые поля выключаем перед отправкой, чтобы не тащить search[x]= в адрес */}}
+{{if .Action}}<form method="get" action="{{.Action}}" onsubmit="[...this.elements].filter(e =&gt; e.name &amp;&amp; !e.value).forEach(e =&gt; e.disabled = true)">{{end}}
+<div class="max-w-full overflow-x-auto">
+<table class="table min-w-full">
+	<thead>
+		<tr class="border-b border-gray-200">
+			{{range .Columns}}<th class="table-head{{with .Class}} {{.}}{{end}}">
+				{{- if .SortHref}}<a class="sort{{if .SortDir}} sort-{{.SortDir}}{{end}}" href="{{.SortHref}}" draggable="false">{{.Title}}</a>
+				{{- else}}{{.Title}}{{end -}}
+			</th>{{end}}
+		</tr>
+		{{if .Action}}
+		<tr class="border-b border-gray-200">
+			{{range .Columns}}<td class="px-5 py-3 align-top">
+				{{- if .SearchOptions}}<select class="field-select h-10 py-2" name="search[{{.Search}}]">
+					{{range .SearchOptions}}<option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>{{end}}
+				</select>
+				{{- else if .Search}}<input class="field-input h-10 py-2" type="search" name="search[{{.Search}}]" value="{{.Query}}" placeholder="{{.Title}}" autocomplete="off">{{end}}
+				{{- if .Actions}}<div class="flex justify-end gap-2"><button type="submit" class="btn btn-sm btn-primary">{{t "Search"}}</button><a class="btn btn-sm" href="{{$.Action}}">{{t "Reset"}}</a></div>{{end -}}
+			</td>{{end}}
+		</tr>
+		{{end}}
+	</thead>
+	<tbody class="divide-y divide-gray-100">
+		{{range .Rows}}
+		<tr>
+			{{range .}}<td class="table-cell{{with .Class}} {{.}}{{end}}">
+				{{- if .Actions}}{{template "row-actions" .Actions}}
+				{{- else if .Href}}<a class="text-brand-500 hover:text-brand-600" href="{{.Href}}" draggable="false">{{.Text}}</a>
+				{{- else}}{{.Text}}{{end -}}
+			</td>{{end}}
+		</tr>
+		{{else}}
+		<tr><td class="px-5 py-10 text-center text-theme-sm text-gray-400" colspan="{{len .Columns}}">{{.Empty}}</td></tr>
+		{{end}}
+	</tbody>
+</table>
+</div>
+{{if .Action}}</form>{{end}}
+{{end}}

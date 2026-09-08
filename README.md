@@ -1,0 +1,229 @@
+# gojiffy
+
+Админка на Go: сущность описывается одной структурой, из которой
+получаются и список с фильтрами, и форма; к ним прилагается вёрстка и разбор
+запроса.
+
+## Что внутри
+
+```
+search.go paging.go perms.go   фильтры, сортировка, страницы, права
+store.go                       контракт хранилища сущности
+i18n.go                        каталог переводов
+view/                          Resource/Table/Form/Field + отрисовка
+themes/TailAdmin/              оформление по умолчанию: шаблоны и CSS
+scheduler/                     суточный запуск фоновой задачи
+```
+
+## Ресурс
+
+Раздел описывается один раз: поле служит разом колонкой списка и полем формы.
+Пустой `Title` убирает его из списка, пустой `Label` — из формы. Все подписи —
+готовый текст: если приложение их переводит, описание становится функцией,
+см. «Переводы».
+
+```go
+type Article struct {
+	ID    int
+	Title string
+}
+
+var Articles = view.Resource[Article, Article]{
+	Path: "/articles", Title: "Статьи", One: "Статья",
+	Wrap: func(a Article) Article { return a },
+	Href: func(a Article) string { return "/articles/" + strconv.Itoa(a.ID) },
+	Fields: []view.Field[Article]{{
+		Name:     "title",
+		Title:    "Заголовок",
+		Label:    "Заголовок",
+		Search:   true,
+		Sort:     true,
+		Required: view.Yes,
+		Text:     func(a Article) string { return a.Title },
+		Parse: func(a *Article, v string, _ bool) error {
+			a.Title = strings.TrimSpace(v)
+			if a.Title == "" {
+				return errors.New("Укажите заголовок")
+			}
+			return nil
+		},
+	}},
+}
+```
+
+Отсюда же берутся фильтры (`ParseSearch`), сортировка (`ParseOrder`), страница
+(`Paging`) и разбор формы (`Parse`) — объявление поля и есть валидация: чего
+нет в описании, того запрос не принесёт.
+
+`For(perms)` отдаёт копию описания без того, на что у пользователя нет прав,
+поэтому скрытое поле не покажется в списке, не появится в форме и не будет
+принято из запроса. Права — это `Perms`, набор строк; откуда они берутся,
+решает приложение.
+
+## Хранилище
+
+`store.go` объявляет контракт доступа к записям. Реализовать его специально не
+нужно: совпали имена и сигнатуры — значит подходит.
+
+```go
+type Lister[M any] interface {
+	List(ctx context.Context, s Search, o Order, p Paging) ([]M, int, error)
+}
+```
+
+Интерфейсы мелкие и раздельные, потому что сущности редко одинаковы: у одной
+создание требует значения, которого нет в самой записи, у другой список
+ограничен областью видимости. Область в сигнатуру не выносится — её замыкает
+само хранилище:
+
+```go
+func Articles(db *sql.DB, authorID int) ArticleStore // конструктор берёт границу
+func (st ArticleStore) List(...) ([]Article, int, error)
+```
+
+Так `List` остаётся общим, а чужая запись недостижима даже по прямому id.
+Соответствие контракту стоит закрепить проверкой при компиляции:
+
+```go
+var _ gojiffy.Store[Article] = ArticleStore{}
+```
+
+## Стили
+
+Вёрстка темы по умолчанию — [TailAdmin](https://tailadmin.com) (MIT),
+Tailwind CSS. Собранный `themes/TailAdmin/static/app.css` лежит в репозитории;
+пересобирать нужно после правки шаблонов темы:
+
+```sh
+tailwindcss -i themes/TailAdmin/styles/app.css -o themes/TailAdmin/static/app.css --minify
+```
+
+Отдаёт его либа сама, приложению остаётся смонтировать:
+
+```go
+mux.Handle("GET /static/", view.Static())
+```
+
+## Тема
+
+Оформление — это файловая система с известным устройством: `templates/` и
+`static/` в корне. По умолчанию берётся `themes/TailAdmin`, но её можно
+заменить целиком или подменить в ней отдельные файлы.
+
+```go
+//go:embed templates static     // корень со своими templates/ и static/
+var mine embed.FS
+
+view.SetTheme(mine)             // своё оформление вместо стандартного
+view.Override(mine)             // свои файлы поверх стандартного
+```
+
+Оба вызова — при запуске, до первой отрисовки, и оба возвращают ошибку, если
+шаблон не собрался; оформление при этом остаётся прежним, страницы не ломаются.
+`Override` можно звать несколько раз, каждый слой перекрывает предыдущие;
+вернуть всё на место — `view.SetTheme(tailadmin.FS)`. Для правки на живую
+годится `os.DirFS("theme")`.
+
+Имена каталогов внутри важны — `templates` и `static`; если своё лежит глубже,
+перед передачей нужен `fs.Sub(mine, "своя/папка")`.
+
+### Что тема обязана содержать
+
+| файл | точка входа | данные |
+|---|---|---|
+| `templates/layout.html` | `{{define "layout"}}` + `{{block "content" .}}` | `view.Page` |
+| `templates/list.html` | `{{define "content"}}` | `view.Page`, `.Data` — `view.ListView` |
+| `templates/form.html` | `{{define "content"}}` | `view.Page`, `.Data` — `view.FormView` |
+| `templates/login.html` | `{{define "login.html"}}` | `view.FormView`, без `Page` |
+| `templates/partials/*.html` | `form`, `field`, `table`, `row-actions`, `list-footer`, `notice` | см. ниже |
+| `static/app.css` | — | отдаётся по `/static/app.css` |
+
+`list.html` и `form.html` собираются в разные наборы — потому они и могут оба
+определять `content`. `login.html` получает partials, но не layout: это
+отдельный документ, и точка входа в нём названа именем файла.
+
+Кому что приходит: `form` и `login.html` — `view.FormView`; `field` —
+`view.FieldView` (вызывается из `form`); `table` — `view.Table`; `row-actions` —
+`[]view.RowAction` (вызывается из `table`); `list-footer` — `view.ListFooter`;
+`notice` — `*view.Notice`.
+
+В шаблонах доступны две функции: `{{app}}` — название приложения
+(`view.SetAppName`), `{{t "Save"}}` — строка либы на выбранном языке
+(`view.SetLanguage`), с аргументами как у `fmt.Sprintf`.
+
+Три сцепки, которые нельзя потерять при замене `layout.html`:
+`<form id="post-action">` с `_csrf` — на неё через `form`/`formaction` вешаются
+кнопки действий в строках таблицы (вложенные формы в HTML запрещены);
+`<dialog id="confirm">` с обработчиками `data-confirm` и `data-copy`;
+`POST /logout` с `_csrf`. Меняете layout — либо оставьте их, либо меняйте
+заодно и `partials/row_actions.html`.
+
+Подменять файл нужно по тому же пути. Новый файл в `partials/` с уже занятым
+`{{define}}` тоже попадёт в набор и молча победит по алфавиту.
+
+### Классы Tailwind в своих шаблонах
+
+`static/app.css` темы собран сканированием её собственных `templates/`
+(`@source "../templates"`). Класса, которого там не было, в готовом CSS нет —
+свой шаблон его не получит. Варианты: держаться классов темы (`btn`,
+`btn-primary`, `field-input`, `field-select`, `table`, `menu-item`…); собрать
+свой CSS со своим `@source` и положить его слоем в `static/app.css`; либо
+переопределить `layout.html` и подключить своё вторым `<link>`.
+
+## Переводы
+
+Либа переводит только свои строки — кнопки формы, «Все» в фильтре, счётчик
+записей. Они зарегистрированы в коде (`view/i18n.go`), сейчас английский,
+русский и украинский; язык выбирается при запуске:
+
+```go
+view.SetLanguage("ru")
+```
+
+Ключ — сам текст на английском, как принято в
+[x/text/message](https://pkg.go.dev/golang.org/x/text/message): не нашли
+перевод — напечатается он же, страница остаётся рабочей.
+
+Подписи из описания ресурса — заголовки разделов, названия полей, подсказки,
+тексты действий — приходят сюда **готовым текстом**. Своего словаря у либы нет,
+и лезть в чужой она не может — эти строки не переводятся вовсе, только
+печатаются как есть:
+
+```go
+func Articles() view.Resource[Article, Article] {
+	return view.Resource[Article, Article]{
+		Title:  "Статьи",
+		Fields: []view.Field[Article]{{Label: "Заголовок"}},
+	}
+}
+```
+
+Если приложению самому нужен перевод, у него свой каталог — общего стола нет,
+поэтому обновление либы не может перебить его перевод и наоборот:
+
+```go
+type Catalog struct{ ... } // gojiffy.Catalog
+
+cat := gojiffy.NewCatalog()
+cat.SetString("ru", "Draft", "Черновик")
+cat.SetLanguage("ru")
+cat.T("Draft") // "Черновик"
+```
+
+`SetString` — одно сообщение на язык; `Set` — то же самое, но произвольным
+`catalog.Message`, например с выбором формы множественного числа через
+[plural.Selectf](https://pkg.go.dev/golang.org/x/text/feature/plural),
+как в счётчике футера (`showingKey` в `view/i18n.go`).
+
+## Название приложения
+
+Подпись в шапке сайдбара и хвост заголовка вкладки задаются один раз при
+запуске, до первой отрисовки:
+
+```go
+view.SetAppName("Название")
+```
+
+Шаблоны берут его функцией `{{app}}`, а не из данных страницы: название одно
+на процесс, а страниц много, и вход рисуется вообще без общей обвязки. Не
+задали — будет `Admin`.
