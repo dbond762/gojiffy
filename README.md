@@ -10,6 +10,7 @@
 search.go paging.go perms.go   фильтры, сортировка, страницы, права
 store.go                       контракт хранилища сущности
 i18n.go                        каталог переводов
+auth/                          вход, сессия, CSRF, права на маршруте
 view/                          Resource/Table/Form/Field + отрисовка
 themes/TailAdmin/              оформление по умолчанию: шаблоны и CSS
 scheduler/                     суточный запуск фоновой задачи
@@ -87,6 +88,41 @@ func (st ArticleStore) List(...) ([]Article, int, error)
 ```go
 var _ gojiffy.Store[Article] = ArticleStore{}
 ```
+
+## Вход
+
+`auth` даёт готовые обработчики входа и выхода, сессию в подписанной куке и
+проверку прав на маршруте. От приложения нужен только `auth.Store` — два
+метода: проверить пару логин/пароль и отдать пользователя по id.
+
+```go
+a := auth.New(db, sessionKey, "/clients") // куда после входа
+a.Mount(mux)                              // GET/POST /login, POST /logout
+mux.Handle("/", a.Require(private))       // остальное — только с сессией
+
+private.HandleFunc("GET /users", a.Can("users.list", h.UsersList))
+```
+
+`Require` пускает дальше только с валидной сессией, на каждый POST сверяет
+CSRF (double-submit: скрытое поле `_csrf` против куки) и кладёт пользователя
+в контекст — достать `auth.UserFrom(ctx)`, токен для формы — `auth.CSRF(r)`.
+`Can` отказывает без права; оборачивать им нужно то, что уже стоит за
+`Require`.
+
+```go
+type Store interface {
+	Authenticate(ctx context.Context, login, password string) (int, error)
+	User(ctx context.Context, id int) (User, error)
+}
+```
+
+Как хранится пароль и откуда берутся права, либа не знает: `Authenticate`
+возвращает id или ошибку (любую — «нет логина» и «пароль не тот» дают одно
+сообщение в форме), `User` зовётся на каждый запрос, поэтому отобранное право
+действует сразу. Ключ подписи куки — сменился ключ, слетели все сессии.
+
+Пути `/login` и `/logout` зашиты: их знают шаблоны темы, поэтому оба конца
+договорённости держит либа.
 
 ## Стили
 

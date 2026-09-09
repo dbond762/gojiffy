@@ -36,6 +36,10 @@ var libStrings = []struct{ key, ru, uk string }{
 	{"Yes", "Да", "Так"},
 	{"Sign in", "Вход", "Вхід"},
 	{"Enter your login and password", "Введите логин и пароль", "Введіть логін і пароль"},
+	{"Login", "Логин", "Логін"},
+	{"Password", "Пароль", "Пароль"},
+	{"Wrong login or password", "Неверный логин или пароль", "Невірний логін або пароль"},
+	{"Access denied", "Нет доступа", "Немає доступу"},
 	{"internal error", "внутренняя ошибка", "внутрішня помилка"},
 }
 
@@ -75,4 +79,9 @@ func newCatalog() *gojiffy.Catalog {
 // каждого незачем.
 func SetLanguage(tag string) { lib.SetLanguage(tag) }
 
-func t(key string, args ...any) string { return lib.T(key, args...) }
+// T — строка либы на выбранном языке, та же, что {{t}} в шаблонах: аргументы
+// как у fmt.Sprintf, неизвестный ключ печатается как есть. Нужна пакетам либы
+// (auth), приложению переводить свой текст этим каталогом нечем — у него свой.
+func T(key string, args ...any) string { return lib.T(key, args...) }
+
+func t(key string, args ...any) string { return T(key, args...) }
