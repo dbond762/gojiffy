@@ -1,5 +1,5 @@
 {{define "layout"}}<!doctype html>
-<html lang="ru">
+<html lang="{{lang}}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -9,11 +9,12 @@
 <body class="bg-gray-50">
 
 <div class="flex min-h-screen flex-col lg:h-screen lg:flex-row lg:overflow-hidden">
-	{{/* На узком экране сайдбар — полоса сверху: прятать его в бургер значило бы
-	   тащить js, а пунктов немного и они помещаются в строку. */}}
+	{{/* On a narrow screen the sidebar is a strip along the top: hiding it behind
+	   a burger would mean dragging in js, and the entries are few enough to fit
+	   on one line. */}}
 	<aside class="w-full shrink-0 border-b border-gray-200 bg-white px-5 lg:h-screen lg:w-[260px] lg:overflow-y-auto lg:border-r lg:border-b-0">
-		{{/* отступы на контейнере, а не на ссылке: иначе рамка фокуса растягивается
-		   на всю ширину сайдбара и читается как выделение его границы */}}
+		{{/* padding on the container and not on the link: otherwise the focus ring
+		   stretches across the whole sidebar and reads as its border */}}
 		<div class="flex items-center gap-6 py-4 lg:block lg:pt-8 lg:pb-0">
 			<a href="/" class="text-title-sm shrink-0 font-semibold tracking-tight text-gray-800 uppercase lg:mb-7 lg:inline-block">{{app}}</a>
 
@@ -28,9 +29,10 @@
 		</div>
 	</aside>
 
-	{{/* tabindex=-1: колонка прокручивается сама, а такие контейнеры Chrome
-	   включает в обход по Tab и обводит рамкой во весь экран. Внутри хватает
-	   фокусируемых элементов, отдельная остановка на пустом месте только мешает. */}}
+	{{/* tabindex=-1: the column scrolls on its own, and Chrome puts containers
+	   like that into the Tab order and rings them across the whole screen.
+	   There are focusable elements enough inside; a separate stop on empty
+	   space only gets in the way. */}}
 	<div tabindex="-1" class="relative flex flex-1 flex-col lg:overflow-x-hidden lg:overflow-y-auto">
 		<header class="sticky top-0 z-30 flex w-full items-center justify-between gap-4 border-b border-gray-200 bg-white px-4 py-3 md:px-6">
 			<nav class="min-w-0">
@@ -38,7 +40,7 @@
 					{{- if .Crumbs}}
 						{{- range $i, $c := .Crumbs}}
 							{{- if $i}}<li class="text-gray-400">/</li>{{end}}
-							{{/* синим, как ссылки в таблицах: серым они не отличались от текущей страницы */}}
+							{{/* blue, like links in tables: in grey they were no different from the current page */}}
 							{{- if $c.Href}}<li><a class="text-brand-500 hover:text-brand-600" href="{{$c.Href}}">{{$c.Title}}</a></li>
 							{{- else}}<li class="text-gray-800">{{$c.Title}}</li>{{end}}
 						{{- end}}
@@ -61,8 +63,9 @@
 	</div>
 </div>
 
-{{/* Кнопки строк таблицы отправляют её через form/formaction: сама таблица уже
-   завёрнута в форму поиска, а вложенные формы в HTML запрещены. */}}
+{{/* Row buttons submit this form through form/formaction: the table itself is
+   already wrapped in the search form, and nested forms are not allowed in
+   HTML. */}}
 <form id="post-action" method="post" hidden><input type="hidden" name="_csrf" value="{{.CSRF}}"></form>
 
 <dialog id="confirm" class="m-auto w-[calc(100%-2rem)] max-w-md rounded-2xl border-0 bg-white p-6 shadow-theme-lg backdrop:bg-gray-900/50">
@@ -75,20 +78,22 @@
 </dialog>
 
 <script>
-// Ячейка целиком — ссылка, поэтому выделение текста мышью заканчивается кликом по ней.
-// Гасим переход, только когда внутри ссылки действительно осталось выделение:
-// у клика с клавиатуры и у обычного клика мышью выделение пустое, они проходят как обычно.
+// The whole cell is a link, so selecting text with the mouse ends in a click on it.
+// We swallow the navigation only when a selection really is left inside the link:
+// for a click from the keyboard and an ordinary mouse click the selection is empty,
+// and those go through as usual.
 addEventListener("click", e => {
 	const link = e.target.closest(".table a");
-	if (!link || e.detail === 0) return; // detail 0 — это клавиатура, ей мешать не за чем
+	if (!link || e.detail === 0) return; // detail 0 is the keyboard, no reason to interfere
 
 	const sel = getSelection();
 	if (sel.isCollapsed || sel.toString().trim() === "") return;
 	if (link.contains(sel.anchorNode) && link.contains(sel.focusNode)) e.preventDefault();
 });
 
-// Кнопка «Скопировать» рядом с полем: выделяем значение (тогда сработает и Ctrl+C,
-// если clipboard-api недоступен — она требует https или localhost) и кладём в буфер.
+// The copy button beside a field: select the value (so that Ctrl+C works too when
+// the clipboard api is unavailable — it needs https or localhost) and put it on the
+// clipboard.
 addEventListener("click", async e => {
 	const btn = e.target.closest("[data-copy]");
 	if (!btn) return;
@@ -101,9 +106,9 @@ addEventListener("click", async e => {
 	} catch {}
 });
 
-// Форма с data-confirm сначала спрашивает. Нативный <dialog> даёт модальность,
-// затемнение, Esc и возврат фокуса даром — Esc просто закрывает, ничего не отправив.
-// form.submit() событие submit не поднимает, поэтому второй раз не спросит.
+// A form with data-confirm asks first. The native <dialog> gives modality, the
+// backdrop, Esc and the focus return for free — Esc simply closes and submits
+// nothing. form.submit() raises no submit event, so it will not ask a second time.
 addEventListener("submit", e => {
 	const form = e.target, sender = e.submitter;
 	const text = sender?.dataset.confirm || form.dataset.confirm;
@@ -112,12 +117,12 @@ addEventListener("submit", e => {
 
 	const box = document.getElementById("confirm");
 	box.querySelector(".msgbox-text").textContent = text;
-	box.onclick = ev => { // перезаписываем, чтобы замкнуться на текущую форму
+	box.onclick = ev => { // reassigned so it closes over the current form
 		const btn = ev.target.closest("button");
 		if (!btn) return;
 		box.close();
 		if (!btn.hasAttribute("data-yes")) return;
-		// form.submit() отправителя не помнит, поэтому его formaction переносим сами
+		// form.submit() does not remember the submitter, so we carry its formaction over
 		if (sender?.hasAttribute("formaction")) form.action = sender.formAction;
 		form.submit();
 	};

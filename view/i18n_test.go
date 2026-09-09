@@ -1,6 +1,8 @@
 package view
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -13,42 +15,42 @@ func TestEveryLanguageHasAllKeys(t *testing.T) {
 		SetLanguage(lang)
 		for _, s := range libStrings {
 			if got := lib.T(s.key); got == s.key {
-				t.Errorf("%s: нет перевода для %q", lang, s.key)
+				t.Errorf("%s: no translation for %q", lang, s.key)
 			}
 		}
 	}
 }
 
-// Счётчик в футере — сообщение с множественным числом: подстановки должны
-// доехать, а форма — смениться вместе с числом.
+// The footer counter is a plural message: the substitutions have to arrive and
+// the form has to change along with the number.
 func TestShowingPlural(t *testing.T) {
 	defer SetLanguage("en")
 	SetLanguage("en")
 
 	one, many := lib.T(showingKey, 1, 1, 1), lib.T(showingKey, 1, 5, 5)
 	if one == showingKey || many == showingKey {
-		t.Fatal("сообщение showing не найдено")
+		t.Fatal("the showing message was not found")
 	}
 	if one == many {
-		t.Errorf("форма не зависит от числа: %q", one)
+		t.Errorf("the form does not follow the number: %q", one)
 	}
 	for _, s := range []string{one, many} {
 		if !strings.Contains(s, "Showing") {
-			t.Errorf("подстановка не подставилась: %q", s)
+			t.Errorf("the substitution did not happen: %q", s)
 		}
 	}
 }
 
-// Неизвестный ключ возвращается как есть — страница остаётся рабочей.
+// An unknown key comes back as it stands, so the page keeps working.
 func TestUnknownKeyReturnsID(t *testing.T) {
 	if got := lib.T("no_such_key_here"); got != "no_such_key_here" {
-		t.Errorf("получили %q", got)
+		t.Errorf("got %q", got)
 	}
 }
 
-// Подписи из описания ресурса либа не переводит — они приходят готовыми.
-// Раньше здесь стоял T(), и ключ приложения приходилось искать в общем
-// каталоге; теперь строка проходит насквозь.
+// The library does not translate labels out of a resource description — they
+// arrive finished. The text below is deliberately not English: it stands for an
+// application writing in its own language, and it has to come out untouched.
 func TestResourceLabelsPassThrough(t *testing.T) {
 	rs := Resource[string, string]{
 		Title:    "Довільний заголовок",
@@ -66,14 +68,31 @@ func TestResourceLabelsPassThrough(t *testing.T) {
 
 	lv := rs.List([]string{"a"}, 1, gojiffy.Paging{Page: 1, PerPage: 20}, nil, gojiffy.Order{})
 	if lv.Title != rs.Title || lv.Table.Columns[0].Title != "Значення" {
-		t.Errorf("заголовки списка изменились: %q, %q", lv.Title, lv.Table.Columns[0].Title)
+		t.Errorf("list headings changed: %q, %q", lv.Title, lv.Table.Columns[0].Title)
 	}
 	if got := lv.Table.Rows[0][1].Actions[0].Title; got != "Змінити" {
-		t.Errorf("подпись действия изменилась: %q", got)
+		t.Errorf("the action caption changed: %q", got)
 	}
 
 	fv := rs.Form("a", false, nil, nil, "")
 	if fv.Title != rs.One || fv.Fields[0].Label != "Значення" || fv.Fields[0].Help != "Підказка" {
-		t.Errorf("подписи формы изменились: %+v", fv)
+		t.Errorf("form labels changed: %+v", fv)
+	}
+}
+
+// The language reaches the page as lang="": a screen reader picks the voice by
+// it, and the browser its hyphenation. Unknown languages fall back to English,
+// so the attribute never carries something a browser cannot read.
+func TestLangAttribute(t *testing.T) {
+	defer SetLanguage("en")
+
+	for lang, want := range map[string]string{"uk": "uk", "ru": "ru", "klingon": "en"} {
+		SetLanguage(lang)
+
+		w := httptest.NewRecorder()
+		Render(w, http.StatusOK, "list.html", Page{Title: "x", Data: ListView{}})
+		if got := `<html lang="` + want + `">`; !strings.Contains(w.Body.String(), got) {
+			t.Errorf("SetLanguage(%q): no %s on the page", lang, got)
+		}
 	}
 }

@@ -1,12 +1,14 @@
-// Package auth — вход в админку: сессия в подписанной куке, CSRF, готовые
-// обработчики /login и /logout и проверка прав на маршруте.
+// Package auth — signing in to the admin panel: a session in a signed cookie,
+// CSRF, ready-made /login and /logout handlers and a permission check on a
+// route.
 //
-// От приложения нужен только Store: где лежат пользователи, как хранится
-// пароль и как считаются права — дело приложения, либа об этом не знает.
+// All it needs from an application is a Store: where users are kept, how a
+// password is stored and how permissions are worked out is the application's
+// business, and the library knows nothing about it.
 //
 //	a := auth.New(db, key, "/clients")
 //	a.Mount(mux)                        // GET/POST /login, POST /logout
-//	mux.Handle("/", a.Require(private)) // всё остальное — только с сессией
+//	mux.Handle("/", a.Require(private)) // everything else needs a session
 package auth
 
 import (
@@ -32,40 +34,42 @@ const (
 	csrfCookie    = "csrf"
 	sessionTTL    = 24 * time.Hour
 
-	// Пути зашиты: их знают шаблоны темы (форма входа шлёт на /login, кнопка в
-	// шапке — POST /logout), поэтому договорённость держит либа с обоих концов.
+	// The paths are fixed: the theme's templates know them (the sign-in form
+	// posts to /login, the button in the header to POST /logout), so both ends
+	// of that arrangement are held by the library.
 	loginPath  = "/login"
 	logoutPath = "/logout"
 )
 
-// User — то, что либа знает о вошедшем: чем подписать сессию, как назвать в
-// шапке и что ему позволено. Своя сущность пользователя остаётся у приложения.
+// User — what the library knows about whoever signed in: what to sign the
+// session with, what to call them in the header and what they are allowed to
+// do. An application's own idea of a user stays with the application.
 type User struct {
 	ID    int
 	Name  string
 	Perms gojiffy.Perms
 }
 
-// Store — всё, что нужно от приложения.
+// Store — everything needed from the application.
 type Store interface {
-	// Authenticate — id пользователя по логину и паролю. Любая ошибка означает
-	// отказ: «нет такого логина» и «пароль не тот» дают одно сообщение, чтобы
-	// по форме нельзя было перебрать логины.
+	// Authenticate — the id of the user for this login and password. Any error
+	// means refusal: "no such login" and "wrong password" produce the same
+	// message, so the form cannot be used to enumerate logins.
 	Authenticate(ctx context.Context, login, password string) (int, error)
-	// User — пользователь по id из сессионной куки. Зовётся на каждый запрос,
-	// поэтому права всегда свежие: отобрали право — отобрали сразу.
+	// User — the user for the id out of the session cookie. Called on every
+	// request, so permissions are always fresh: one taken away is gone at once.
 	User(ctx context.Context, id int) (User, error)
 }
 
-// Auth держит хранилище и ключ подписи. Создаётся один раз при запуске.
+// Auth holds the store and the signing key. Created once, at startup.
 type Auth struct {
 	store Store
 	key   []byte
 	home  string
 }
 
-// New: key — ключ подписи сессионной куки (сменился ключ — все сессии слетели),
-// home — куда отправлять после входа, пусто — на «/».
+// New: key signs the session cookie (change the key and every session is
+// gone), home is where to send someone after signing in, empty means "/".
 func New(store Store, key []byte, home string) *Auth {
 	if home == "" {
 		home = "/"
@@ -73,16 +77,17 @@ func New(store Store, key []byte, home string) *Auth {
 	return &Auth{store: store, key: key, home: home}
 }
 
-// Mount вешает вход и выход. Они снаружи Require: до входа сессии ещё нет, а
-// CSRF обе проверяют сами, поэтому от места монтирования это не зависит.
+// Mount hangs sign-in and sign-out on the mux. They sit outside Require: there
+// is no session yet before signing in, and both check CSRF themselves, so
+// where they are mounted makes no difference.
 func (a *Auth) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("GET "+loginPath, a.loginForm)
 	mux.HandleFunc("POST "+loginPath, a.login)
 	mux.HandleFunc("POST "+logoutPath, a.logout)
 }
 
-// Require пускает дальше только с валидной сессией, POST дополнительно
-// проверяет CSRF. Пользователь кладётся в контекст — достать UserFrom.
+// Require lets through only a valid session, and checks CSRF on top of that
+// for a POST. The user is put in the context — take it out with UserFrom.
 func (a *Auth) Require(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		c, err := r.Cookie(sessionCookie)
@@ -98,8 +103,8 @@ func (a *Auth) Require(next http.Handler) http.Handler {
 		}
 		u, err := a.store.User(r.Context(), id)
 		if err != nil {
-			// Пользователя удалили или база молчит — в обоих случаях сессии
-			// больше нет, разбирать разницу здесь незачем.
+			// The user was deleted or the database is silent — either way the
+			// session is over, and telling the two apart here buys nothing.
 			clearSession(w, r)
 			http.Redirect(w, r, loginPath, http.StatusSeeOther)
 			return
@@ -112,8 +117,9 @@ func (a *Auth) Require(next http.Handler) http.Handler {
 	})
 }
 
-// Can пускает дальше только с указанным правом. Оборачивать нужно то, что уже
-// стоит за Require: без него в контексте пусто и прав нет ни у кого.
+// Can lets through only someone holding the named permission. Wrap what
+// already stands behind Require: without it the context is empty and nobody
+// holds anything.
 func (a *Auth) Can(perm string, next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !UserFrom(r.Context()).Perms.Can(perm) {
@@ -126,14 +132,14 @@ func (a *Auth) Can(perm string, next http.HandlerFunc) http.HandlerFunc {
 
 type ctxKey struct{}
 
-// UserFrom — вошедший пользователь. Вне Require отдаёт пустого: прав у него
-// нет, значит Can никого не пустит.
+// UserFrom — the user who signed in. Outside Require it hands back an empty
+// one: no permissions, so Can lets nobody through.
 func UserFrom(ctx context.Context) User {
 	u, _ := ctx.Value(ctxKey{}).(User)
 	return u
 }
 
-// CSRF — токен для скрытого поля формы (view.Page.CSRF, Resource.Form).
+// CSRF — the token for the hidden form field (view.Page.CSRF, Resource.Form).
 func CSRF(r *http.Request) string {
 	if c, err := r.Cookie(csrfCookie); err == nil {
 		return c.Value
@@ -141,16 +147,17 @@ func CSRF(r *http.Request) string {
 	return ""
 }
 
-// CheckCSRF — double-submit: скрытое поле формы должно совпасть с кукой.
-// Require зовёт её на каждый POST; отдельно она нужна только своим
-// обработчикам вне Require.
+// CheckCSRF — double submit: the hidden form field has to match the cookie.
+// Require calls it on every POST; it is needed on its own only for handlers
+// standing outside Require.
 func CheckCSRF(r *http.Request) bool {
 	token := CSRF(r)
 	return token != "" && subtle.ConstantTimeCompare([]byte(token), []byte(r.PostFormValue("_csrf"))) == 1
 }
 
 func (a *Auth) loginForm(w http.ResponseWriter, r *http.Request) {
-	// CSRF-кука нужна ещё до входа, иначе нечего сверять с формой логина.
+	// The CSRF cookie is needed before signing in, or there is nothing to
+	// check the sign-in form against.
 	token := CSRF(r)
 	if token == "" {
 		token = hex.EncodeToString(randomBytes(32))
@@ -168,7 +175,7 @@ func (a *Auth) login(w http.ResponseWriter, r *http.Request) {
 
 	id, err := a.store.Authenticate(r.Context(), login, r.PostFormValue("password"))
 	if err != nil {
-		// Одно сообщение на оба случая — не подсказываем, существует ли логин.
+		// One message for both cases — we do not hint whether the login exists.
 		view.Render(w, http.StatusUnauthorized, "login.html",
 			loginPage(CSRF(r), login, view.T("Wrong login or password")))
 		return
@@ -201,7 +208,7 @@ func loginPage(token, login, errMsg string) view.FormView {
 	}
 }
 
-// sign возвращает куку вида base64(userID|exp).hmac
+// sign returns a cookie shaped base64(userID|exp).hmac
 func (a *Auth) sign(userID int, exp time.Time) string {
 	payload := base64.RawURLEncoding.EncodeToString(
 		[]byte(strconv.Itoa(userID) + "|" + strconv.FormatInt(exp.Unix(), 10)))
@@ -213,13 +220,13 @@ func (a *Auth) sign(userID int, exp time.Time) string {
 func (a *Auth) verify(value string) (int, error) {
 	payload, sig, ok := strings.Cut(value, ".")
 	if !ok {
-		return 0, errors.New("битая кука")
+		return 0, errors.New("malformed cookie")
 	}
 	mac := hmac.New(sha256.New, a.key)
 	mac.Write([]byte(payload))
 	want, err := hex.DecodeString(sig)
 	if err != nil || !hmac.Equal(want, mac.Sum(nil)) {
-		return 0, errors.New("подпись не совпала")
+		return 0, errors.New("signature does not match")
 	}
 
 	raw, err := base64.RawURLEncoding.DecodeString(payload)
@@ -228,14 +235,14 @@ func (a *Auth) verify(value string) (int, error) {
 	}
 	idStr, expStr, ok := strings.Cut(string(raw), "|")
 	if !ok {
-		return 0, errors.New("битая кука")
+		return 0, errors.New("malformed cookie")
 	}
 	exp, err := strconv.ParseInt(expStr, 10, 64)
 	if err != nil {
 		return 0, err
 	}
 	if time.Now().After(time.Unix(exp, 0)) {
-		return 0, errors.New("сессия истекла")
+		return 0, errors.New("session expired")
 	}
 	return strconv.Atoi(idStr)
 }

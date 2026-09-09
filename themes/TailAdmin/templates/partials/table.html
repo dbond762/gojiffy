@@ -1,5 +1,5 @@
 {{define "table"}}
-{{/* пустые поля выключаем перед отправкой, чтобы не тащить search[x]= в адрес */}}
+{{/* empty fields are disabled before submitting, to keep search[x]= out of the address */}}
 {{if .Action}}<form method="get" action="{{.Action}}" onsubmit="[...this.elements].filter(e =&gt; e.name &amp;&amp; !e.value).forEach(e =&gt; e.disabled = true)">{{end}}
 <div class="max-w-full overflow-x-auto">
 <table class="table min-w-full">

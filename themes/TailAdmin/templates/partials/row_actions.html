@@ -5,10 +5,11 @@
 		{{- else}}<a class="btn btn-sm" href="{{.Href}}">{{.Title}}</a>{{end -}}
 	{{end}}
 {{- else}}
-	{{/* details — родной сворачивающийся блок, выпадающий список обходится без js */}}
+	{{/* details is the native disclosure element, so the dropdown does without js */}}
 	<details class="dropdown relative inline-block">
-		{{/* summary — не кнопка, и правило cursor:pointer из базы Tailwind его не
-	   покрывает; select-none заодно убирает выделение текста при клике */}}
+		{{/* summary is not a button, and the cursor:pointer rule out of the Tailwind
+	   base does not cover it; select-none also stops text being selected on a
+	   click */}}
 		<summary class="btn btn-sm cursor-pointer list-none select-none after:ml-1 after:text-gray-400 after:content-['▾']">{{t "Actions"}}</summary>
 		<ul class="absolute right-0 z-20 mt-1 min-w-[160px] rounded-xl border border-gray-200 bg-white p-2 shadow-theme-lg">
 			{{range .}}<li>

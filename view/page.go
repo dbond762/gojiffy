@@ -1,7 +1,7 @@
 package view
 
-// Page — общая обёртка layout.html: шапка, сайдбар, хлебные крошки.
-// MenuItem — пункт бокового меню.
+// Page — the common wrapper of layout.html: header, sidebar, breadcrumbs.
+// MenuItem — one entry of the side menu.
 type MenuItem struct {
 	Link
 	Active bool
@@ -9,11 +9,11 @@ type MenuItem struct {
 
 type Page struct {
 	Title string
-	// UserName — подпись в шапке. Не модель пользователя: приложению виднее,
-	// что показывать, а либе тут хватает строки.
+	// UserName — the caption in the header. Not a user model: the application
+	// knows better what to show, and a string is all the library needs here.
 	UserName string
-	CSRF     string     // для форм в layout (выход)
-	Crumbs   []Link     // путь в шапке; последняя крошка — текущая страница, без ссылки
-	Menu     []MenuItem // разделы, доступные пользователю
+	CSRF     string     // for the forms in the layout (signing out)
+	Crumbs   []Link     // the trail in the header; the last crumb is this page, unlinked
+	Menu     []MenuItem // the sections this user may see
 	Data     any
 }

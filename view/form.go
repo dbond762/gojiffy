@@ -1,32 +1,33 @@
 package view
 
-// Данные для partials/form.html и partials/field.html — их готовит Form.View.
+// Data for partials/form.html and partials/field.html — prepared by Form.View.
 
 type Option struct {
 	Value, Label string
 	Selected     bool
 }
 
-// FieldView с непустым Options рендерится как <select>, иначе как <input Type>.
+// A FieldView with Options set renders as a <select>, otherwise as an <input Type>.
 type FieldView struct {
 	Name, Label, Type, Value, Help, Error string
-	Autocomplete                          string // "new-password" гасит подстановку менеджера паролей
+	Autocomplete                          string // "new-password" stops a password manager filling it in
 	Options                               []Option
 	Required                              bool
-	// Readonly, а не disabled: значение всё равно уходит на сервер и не ломает
-	// required, а принять его или нет — решает Parse.
+	// Readonly rather than disabled: the value still reaches the server and
+	// does not break required, and whether to accept it is up to Parse.
 	Readonly bool
 }
 
-// Button — действие рядом с формой, но своим запросом: вложенные формы в HTML
-// запрещены, поэтому рисуется отдельной формой после основной.
+// Button — an action beside the form but carrying its own request: nested
+// forms are not allowed in HTML, so it is drawn as a separate form after the
+// main one.
 type Button struct {
 	Title, Action, Class string
-	Confirm              string // текст подтверждения; пусто — без вопроса
+	Confirm              string // the confirmation text; empty asks nothing
 }
 
-// Notice — выделенный блок над формой. Code показывается моноширинным: это то,
-// что нужно скопировать.
+// Notice — a highlighted block above the form. Code is shown in a monospace
+// font: it is the part meant to be copied.
 type Notice struct{ Title, Text, Code string }
 
 type FormView struct {

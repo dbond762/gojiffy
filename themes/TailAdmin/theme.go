@@ -1,17 +1,19 @@
-// Package tailadmin — оформление админки по умолчанию: шаблоны и собранный CSS.
-// Вёрстка взята из TailAdmin (MIT), см. LICENSE.txt рядом.
+// Package tailadmin — the default look of the admin panel: templates and the
+// built CSS. The markup comes from TailAdmin (MIT), see LICENSE.txt next to it.
 //
-// Про view пакет не знает намеренно: тема — это просто файловая система нужной
-// формы, и чужая тема тоже не обязана тащить за собой либу.
+// It deliberately knows nothing of view: a theme is just a filesystem of the
+// right shape, and a theme written elsewhere should not have to drag the
+// library along either.
 package tailadmin
 
 import "embed"
 
-// FS — тема целиком: templates/ и static/ лежат в корне, как ждёт view.SetTheme.
+// FS — the whole theme: templates/ and static/ sit at the root, as
+// view.SetTheme expects.
 //
-// styles/ в бинарник не едет — исходник CSS нужен при сборке, а не при
-// отрисовке. LICENSE.txt едет: собранный CSS уезжает в чужой бинарник, и
-// лицензия должна ехать вместе с ним.
+// styles/ does not travel into the binary — the CSS source is needed at build
+// time, not at render time. LICENSE.txt does travel: the built CSS ends up in
+// a binary that is not ours, and the licence has to go with it.
 //
 //go:embed templates static LICENSE.txt
 var FS embed.FS

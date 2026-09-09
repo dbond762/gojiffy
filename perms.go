@@ -1,7 +1,7 @@
 package gojiffy
 
-// Perms — права текущего пользователя. Разграничение доступа идёт по ним,
-// а не по названию роли: роль — это просто набор прав.
+// Perms — permissions of the current user. Access is granted by these and not
+// by the name of a role: a role is just a set of permissions.
 type Perms map[string]bool
 
 func (p Perms) Can(name string) bool { return p[name] }

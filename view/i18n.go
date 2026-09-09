@@ -6,18 +6,18 @@ import (
 	"github.com/dbond762/gojiffy"
 )
 
-// lib — переводы самой админки: кнопки формы, «Все» в фильтре, счётчик
-// записей. Каталог свой (см. gojiffy.Catalog) и закрытый — не
-// message.DefaultCatalog, чтобы его не затёр каталог, который тем же
-// способом соберёт приложение.
+// lib — translations of the admin panel itself: form buttons, All in a filter,
+// the record counter. The catalogue is its own (see gojiffy.Catalog) and
+// private — not message.DefaultCatalog, so that a catalogue an application
+// builds the same way cannot overwrite it.
 //
-// Ключ — исходный текст на английском, как принято в x/text/message:
-// неизвестный ключ печатается как есть, так что незачем городить отдельный
-// идентификатор для него. Подписи из описания ресурса сюда не попадают —
-// это уже готовый текст, его переводит приложение у себя.
+// The key is the source text in English, as x/text/message intends: an unknown
+// key prints as it stands, so there is no need to invent a separate identifier
+// for it. Labels out of a resource description never get here — they are
+// finished text already, translated by the application at its end.
 var lib = newCatalog()
 
-// libStrings — простые сообщения без выбора формы: одно значение на язык.
+// libStrings — plain messages with no form to choose: one value per language.
 var libStrings = []struct{ key, ru, uk string }{
 	{"Menu", "Меню", "Меню"},
 	{"Log out", "Выйти", "Вийти"},
@@ -31,6 +31,7 @@ var libStrings = []struct{ key, ru, uk string }{
 	{"Create", "Создать", "Створити"},
 	{"Save", "Сохранить", "Зберегти"},
 	{"Cancel", "Отмена", "Скасувати"},
+	{"Copy", "Скопировать", "Скопіювати"},
 	{"Copied", "Скопировано", "Скопійовано"},
 	{"Confirm", "Подтверждение", "Підтвердження"},
 	{"Yes", "Да", "Так"},
@@ -43,8 +44,8 @@ var libStrings = []struct{ key, ru, uk string }{
 	{"internal error", "внутренняя ошибка", "внутрішня помилка"},
 }
 
-// showingKey — счётчик в футере списка; формат один на все языки, различаются
-// только формы множественного числа, зарегистрированные ниже под ним же.
+// showingKey — the counter in a list footer; the format is the same in every
+// language and only the plural forms differ, registered below under this key.
 const showingKey = "Showing %[1]d–%[2]d of %[3]d records"
 
 func newCatalog() *gojiffy.Catalog {
@@ -54,8 +55,9 @@ func newCatalog() *gojiffy.Catalog {
 		c.SetString("uk", s.key, s.uk)
 	}
 
-	// Показано X–Y из/з N: N определяет форму слова «запись», Total — третий
-	// позиционный аргумент, %[3]d выбирает его же для печати внутри формы.
+	// Showing X-Y of N: N decides the form of the word "record". Total is the
+	// third positional argument, and %[3]d picks that same one for printing
+	// inside each form.
 	c.Set("en", showingKey, plural.Selectf(3, "%d",
 		"one", "Showing %[1]d–%[2]d of %[3]d record",
 		"other", showingKey))
@@ -73,15 +75,16 @@ func newCatalog() *gojiffy.Catalog {
 	return c
 }
 
-// SetLanguage выбирает язык строк либы. Вызывать при запуске, до первой
-// отрисовки; неизвестный язык откатывается на английский. Язык один на
-// процесс: админку открывает свой круг людей, и подстраиваться под браузер
-// каждого незачем.
+// SetLanguage picks the language of the library strings. Call it at startup,
+// before the first render; an unknown language falls back to English. The
+// language is one per process: an admin panel is opened by a known circle of
+// people, and there is nothing to gain from following each one's browser.
 func SetLanguage(tag string) { lib.SetLanguage(tag) }
 
-// T — строка либы на выбранном языке, та же, что {{t}} в шаблонах: аргументы
-// как у fmt.Sprintf, неизвестный ключ печатается как есть. Нужна пакетам либы
-// (auth), приложению переводить свой текст этим каталогом нечем — у него свой.
+// T — a library string in the chosen language, the same as {{t}} in templates:
+// arguments as for fmt.Sprintf, an unknown key printed as it stands. Packages
+// of the library need it (auth); an application has nothing of its own to
+// translate through this catalogue — it keeps its own.
 func T(key string, args ...any) string { return lib.T(key, args...) }
 
 func t(key string, args ...any) string { return T(key, args...) }

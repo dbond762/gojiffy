@@ -13,21 +13,21 @@ import (
 	"github.com/dbond762/gojiffy"
 )
 
-// fakeStore — один пользователь с паролем «secret».
+// fakeStore — one user whose password is "secret".
 type fakeStore struct{ perms gojiffy.Perms }
 
 func (s fakeStore) Authenticate(_ context.Context, login, password string) (int, error) {
 	if login != "petr" || password != "secret" {
-		return 0, errors.New("не тот")
+		return 0, errors.New("not that one")
 	}
 	return 42, nil
 }
 
 func (s fakeStore) User(_ context.Context, id int) (User, error) {
 	if id != 42 {
-		return User{}, errors.New("нет такого")
+		return User{}, errors.New("no such user")
 	}
-	return User{ID: 42, Name: "Пётр", Perms: s.perms}, nil
+	return User{ID: 42, Name: "Petr", Perms: s.perms}, nil
 }
 
 func testAuth(perms ...string) *Auth {
@@ -43,32 +43,32 @@ func TestSessionCookie(t *testing.T) {
 	valid := a.sign(42, time.Now().Add(time.Hour))
 
 	if id, err := a.verify(valid); err != nil || id != 42 {
-		t.Fatalf("валидная кука: id=%d err=%v", id, err)
+		t.Fatalf("valid cookie: id=%d err=%v", id, err)
 	}
 
-	// подпись испорчена
+	// signature tampered with
 	broken := valid[:len(valid)-1] + string(valid[len(valid)-1]^1)
 	if _, err := a.verify(broken); err == nil {
-		t.Error("испорченная подпись принята")
+		t.Error("tampered signature accepted")
 	}
 
-	// payload подменён, подпись от другого значения
+	// payload swapped, signature from another value
 	payload, sig, _ := strings.Cut(valid, ".")
 	if _, err := a.verify(payload + "x." + sig); err == nil {
-		t.Error("подменённый payload принят")
+		t.Error("swapped payload accepted")
 	}
 
-	// ключ чужой
-	if _, err := New(fakeStore{}, []byte("другой"), "").verify(valid); err == nil {
-		t.Error("кука от чужого ключа принята")
+	// someone else's key
+	if _, err := New(fakeStore{}, []byte("another"), "").verify(valid); err == nil {
+		t.Error("cookie signed with another key accepted")
 	}
 
 	if _, err := a.verify(a.sign(42, time.Now().Add(-time.Minute))); err == nil {
-		t.Error("протухшая кука принята")
+		t.Error("expired cookie accepted")
 	}
 
-	if _, err := a.verify("мусор"); err == nil {
-		t.Error("мусор принят")
+	if _, err := a.verify("rubbish"); err == nil {
+		t.Error("rubbish accepted")
 	}
 }
 
@@ -84,35 +84,36 @@ func TestCheckCSRF(t *testing.T) {
 	}
 
 	if !post("tok123", "tok123") {
-		t.Error("совпадающий токен отвергнут")
+		t.Error("matching token rejected")
 	}
-	if post("tok123", "чужой") {
-		t.Error("чужой токен принят")
+	if post("tok123", "someone else's") {
+		t.Error("foreign token accepted")
 	}
 	if post("tok123", "") {
-		t.Error("пустое поле принято")
+		t.Error("empty field accepted")
 	}
 	if post("", "") {
-		t.Error("запрос без куки принят")
+		t.Error("request without a cookie accepted")
 	}
 }
 
-// Вход целиком: форма отдаёт CSRF-куку, верная пара логин/пароль заводит
-// сессию, с ней Require пускает дальше и кладёт пользователя в контекст.
+// Signing in end to end: the form hands out a CSRF cookie, the right pair of
+// login and password starts a session, and with it Require lets the request
+// through and puts the user in the context.
 func TestLoginFlow(t *testing.T) {
 	a := testAuth()
 	mux := http.NewServeMux()
 	a.Mount(mux)
 
-	// GET /login — страница и CSRF-кука
+	// GET /login — the page and a CSRF cookie
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, httptest.NewRequest("GET", "/login", nil))
 	if w.Code != http.StatusOK {
-		t.Fatalf("форма входа: %d", w.Code)
+		t.Fatalf("sign-in form: %d", w.Code)
 	}
 	csrf := cookie(w.Result().Cookies(), csrfCookie)
 	if csrf == "" {
-		t.Fatal("форма входа не поставила csrf-куку")
+		t.Fatal("sign-in form set no csrf cookie")
 	}
 
 	post := func(login, password string) *httptest.ResponseRecorder {
@@ -125,22 +126,22 @@ func TestLoginFlow(t *testing.T) {
 		return w
 	}
 
-	if w := post("petr", "нетот"); w.Code != http.StatusUnauthorized {
-		t.Errorf("неверный пароль дал %d", w.Code)
+	if w := post("petr", "not it"); w.Code != http.StatusUnauthorized {
+		t.Errorf("wrong password gave %d", w.Code)
 	} else if cookie(w.Result().Cookies(), sessionCookie) != "" {
-		t.Error("неверный пароль завёл сессию")
+		t.Error("wrong password started a session")
 	}
 
 	w = post("petr", "secret")
 	if w.Code != http.StatusSeeOther || w.Header().Get("Location") != "/clients" {
-		t.Fatalf("вход дал %d → %q", w.Code, w.Header().Get("Location"))
+		t.Fatalf("signing in gave %d to %q", w.Code, w.Header().Get("Location"))
 	}
 	sid := cookie(w.Result().Cookies(), sessionCookie)
 	if sid == "" {
-		t.Fatal("вход не завёл сессию")
+		t.Fatal("signing in started no session")
 	}
 
-	// с сессией Require пускает и кладёт пользователя в контекст
+	// with a session Require lets through and puts the user in the context
 	var got User
 	h := a.Require(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		got = UserFrom(r.Context())
@@ -149,20 +150,20 @@ func TestLoginFlow(t *testing.T) {
 	r.AddCookie(&http.Cookie{Name: sessionCookie, Value: sid})
 	w = httptest.NewRecorder()
 	h.ServeHTTP(w, r)
-	if got.ID != 42 || got.Name != "Пётр" {
-		t.Errorf("в контексте %+v", got)
+	if got.ID != 42 || got.Name != "Petr" {
+		t.Errorf("context holds %+v", got)
 	}
 
-	// без сессии — на форму входа
+	// without a session — back to the sign-in form
 	w = httptest.NewRecorder()
 	h.ServeHTTP(w, httptest.NewRequest("GET", "/clients", nil))
 	if w.Code != http.StatusSeeOther || w.Header().Get("Location") != "/login" {
-		t.Errorf("без куки %d → %q", w.Code, w.Header().Get("Location"))
+		t.Errorf("no cookie gave %d to %q", w.Code, w.Header().Get("Location"))
 	}
 }
 
-// POST без CSRF не проходит, даже с валидной сессией: иначе double-submit
-// защищал бы только вход.
+// A POST without CSRF does not pass even with a valid session: otherwise the
+// double submit would only ever guard signing in.
 func TestRequireChecksCSRF(t *testing.T) {
 	a := testAuth()
 	h := a.Require(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -176,11 +177,11 @@ func TestRequireChecksCSRF(t *testing.T) {
 	h.ServeHTTP(w, r)
 
 	if w.Code != http.StatusForbidden {
-		t.Errorf("POST без csrf дал %d", w.Code)
+		t.Errorf("POST without csrf gave %d", w.Code)
 	}
 }
 
-// Can смотрит на права из контекста, а не на роль.
+// Can looks at the permissions in the context, not at a role.
 func TestCan(t *testing.T) {
 	next := func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusTeapot) }
 
@@ -199,7 +200,7 @@ func TestCan(t *testing.T) {
 		a.Require(a.Can("clients.list", next)).ServeHTTP(w, r)
 
 		if w.Code != tc.want {
-			t.Errorf("права %v дали %d, expected %d", tc.perms, w.Code, tc.want)
+			t.Errorf("permissions %v gave %d, expected %d", tc.perms, w.Code, tc.want)
 		}
 	}
 }

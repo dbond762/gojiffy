@@ -183,9 +183,11 @@ view.Override(mine)             // свои файлы поверх станда
 `[]view.RowAction` (вызывается из `table`); `list-footer` — `view.ListFooter`;
 `notice` — `*view.Notice`.
 
-В шаблонах доступны две функции: `{{app}}` — название приложения
+В шаблонах доступны три функции: `{{app}}` — название приложения
 (`view.SetAppName`), `{{t "Save"}}` — строка либы на выбранном языке
-(`view.SetLanguage`), с аргументами как у `fmt.Sprintf`.
+(`view.SetLanguage`), с аргументами как у `fmt.Sprintf`, и `{{lang}}` — код
+этого языка для `<html lang="…">` (неизвестный язык откатывается на `en`,
+и `{{lang}}` вернёт именно то, на чём в итоге печатается).
 
 Три сцепки, которые нельзя потерять при замене `layout.html`:
 `<form id="post-action">` с `_csrf` — на неё через `form`/`formaction` вешаются

@@ -1,16 +1,18 @@
-/* Тема и компоненты взяты из TailAdmin (MIT, Copyright (c) 2023 TailAdmin),
-   см. ../LICENSE.txt. Собирается в ../static/app.css, команда — в README. */
+/* The theme and its components come from TailAdmin (MIT, Copyright (c) 2023
+   TailAdmin), see ../LICENSE.txt. Built into ../static/app.css; the command is
+   in the README. */
 @import url("https://fonts.googleapis.com/css2?family=Outfit:wght@100..900&display=swap")
 layer(base);
 
 @import "tailwindcss" source(none);
 
-/* Сканируем только шаблоны: классы, приходящие из Go, объявлены ниже как
-   @utility, поэтому искать их в исходниках незачем. */
+/* Only the templates are scanned: the classes coming out of Go are declared
+   below as @utility, so there is nothing to look for in the sources. */
 @source "../templates";
 
-/* Эти классы приходят готовой строкой из Go (view.Field.Class, Cell.Class,
-   Button.Class) и в шаблонах не встречаются — сканеру их не найти. */
+/* These classes arrive as a finished string out of Go (view.Field.Class,
+   Cell.Class, Button.Class) and appear in no template, so the scanner cannot
+   find them. */
 @source inline("col-id col-actions bool-yes bool-no btn-primary");
 
 @custom-variant dark (&:is(.dark *));
@@ -286,10 +288,11 @@ layer(base);
   }
 }
 
-/* ——— Компоненты дашборда ———
-   Разметка на утилитах, но то, что повторяется в каждом шаблоне (кнопка, поле,
-   ячейка таблицы), вынесено сюда. Здесь же живут классы, которые приходят
-   готовой строкой из Go и в шаблонах не видны: col-id, col-actions, bool-*. */
+/* ——— Dashboard components ———
+   The markup is built from utilities, but whatever repeats in every template (a
+   button, a field, a table cell) has been moved here. Here too live the classes
+   that arrive as a finished string out of Go and are invisible in templates:
+   col-id, col-actions, bool-*. */
 
 @utility btn {
   @apply text-theme-sm inline-flex items-center justify-center gap-2 rounded-lg border
@@ -305,7 +308,8 @@ layer(base);
   @apply text-theme-xs px-3 py-2;
 }
 
-/* Ссылка, которую нужно показать кнопкой: у <a> нет disabled, зато есть подчёркивание */
+/* A link that has to look like a button: <a> has no disabled but does have an
+   underline */
 @utility btn-link {
   @apply text-theme-sm text-brand-500 hover:text-brand-600 font-medium;
 }
@@ -320,14 +324,15 @@ layer(base);
     placeholder:text-gray-400 focus:ring-3 focus:outline-hidden;
 }
 
-/* Именно по атрибуту, а не через :read-only. <select> не поддерживает readonly,
-   и по спецификации псевдокласс :read-only истинен для него всегда — от этого
-   все выпадающие списки выглядели заблокированными. */
+/* By the attribute, not through :read-only. <select> does not support readonly,
+   and by the specification the :read-only pseudo-class is always true for it,
+   which made every dropdown look disabled. */
 .field-input[readonly] {
   @apply bg-gray-50 text-gray-500;
 }
 
-/* select без родной стрелки: своя нарисована фоном, как у TailAdmin */
+/* a select without its native arrow: ours is drawn as a background, as in
+   TailAdmin */
 @utility field-select {
   @apply field-input appearance-none bg-[length:20px_20px] bg-[right_14px_center] bg-no-repeat pr-11;
   background-image: url("data:image/svg+xml,%3Csvg width='20' height='20' viewBox='0 0 20 20' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M5 7.5L10 12.5L15 7.5' stroke='%23667085' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
@@ -341,7 +346,7 @@ layer(base);
   @apply text-theme-sm px-5 py-3.5 text-gray-700;
 }
 
-/* ——— то, что задаёт Go ——— */
+/* ——— what Go sets ——— */
 
 @utility col-id {
   @apply w-16;
@@ -359,15 +364,16 @@ layer(base);
   @apply text-error-500 text-center;
 }
 
-/* На входе кнопка одна и во всю ширину — как на signin у TailAdmin.
-   Форма общая с остальными страницами, поэтому правило точечное. */
+/* On the sign-in page there is one button and it spans the width, as on the
+   TailAdmin signin page. The form is shared with every other page, so the rule
+   is kept narrow. */
 .login .btn-primary {
   @apply w-full;
 }
 
-/* ——— строки ———
-   Зебра и подсветка правилами, а не утилитами в разметке: так порядок
-   гарантирован и наведение точно перекрывает чётную строку. */
+/* ——— rows ———
+   Zebra striping and hover as rules rather than utilities in the markup: that
+   way the order is guaranteed and hover reliably covers an even row. */
 
 .table tbody tr:nth-child(even) {
   @apply bg-gray-50;
@@ -377,9 +383,9 @@ layer(base);
   @apply bg-brand-25;
 }
 
-/* ——— разделители столбцов ———
-   Горизонтальные линии даёт divide-y на tbody, вертикальные — здесь.
-   У последнего столбца линия лишняя: она совпала бы с рамкой панели. */
+/* ——— column separators ———
+   Horizontal lines come from divide-y on tbody, vertical ones from here. On the
+   last column the line is one too many: it would sit on the panel border. */
 
 .table th {
   @apply border-r border-gray-200;
@@ -394,10 +400,11 @@ layer(base);
   @apply border-r-0;
 }
 
-/* ——— кликабельная ячейка ———
-   Ссылка забирает отступы ячейки себе, чтобы кликалась вся площадь, а не только
-   текст. Кнопку действия не трогаем: иначе «Изменить» растянулась бы на всю
-   колонку. Браузер без :has просто оставит отступы на ячейке — вёрстка не поедет. */
+/* ——— clickable cell ———
+   The link takes the padding of the cell so that the whole area is clickable
+   and not just the text. An action button is left alone, or Edit would stretch
+   across the column. A browser without :has simply keeps the padding on the
+   cell, and nothing about the layout falls apart. */
 
 .table th:has(> .sort),
 .table td:has(> a:not(.btn)) {
@@ -408,23 +415,24 @@ layer(base);
   @apply px-5 py-3;
 }
 
-/* Высоту ссылка берёт по своему тексту: растянуть её на всю строку, когда
-   соседняя ячейка перенеслась на две строки, в табличной раскладке нечем —
-   height:100% у потомка td не к чему привязать. Так было и до Tailwind. */
+/* The link takes its height from its own text: in a table layout there is no
+   way to stretch it over a row whose neighbouring cell wrapped onto two lines —
+   height:100% on a child of td has nothing to resolve against. It was so before
+   Tailwind too. */
 .table td > a:not(.btn) {
   @apply block px-5 py-3.5;
 }
 
-/* без этого зажатая на тексте кнопка начинает перетаскивать ссылку,
-   и выделить текст в ячейке мышью невозможно */
+/* without this, holding the mouse button down on the text starts dragging the
+   link, and selecting text in a cell with the mouse becomes impossible */
 .table a {
   -webkit-user-drag: none;
   user-select: text;
 }
 
-/* ——— сортировка ———
-   Значок стоит у любого сортируемого столбца — так видно, что заголовок вообще
-   кликабельный, а не только у того, по которому сейчас отсортировано. */
+/* ——— sorting ———
+   The marker stands on every sortable column, so it is visible that a heading
+   can be clicked at all, and not only on the one currently sorted by. */
 
 .table th .sort {
   @apply flex items-center justify-between gap-2.5;
@@ -460,38 +468,42 @@ layer(base);
   @apply text-gray-700;
 }
 
-/* ——— фокус с клавиатуры ———
-   Рамку рисуем свою: браузерная у каждого своего цвета (в Chrome она вообще
-   оранжевая) и с темой не спорит только случайно. :focus-visible, а не :focus —
-   чтобы кольцо не вспыхивало на каждый клик мышью. */
+/* ——— keyboard focus ———
+   We draw the ring ourselves: every browser has its own colour for it (in
+   Chrome it is orange outright) and only by accident agrees with the theme.
+   :focus-visible rather than :focus, so the ring does not flash on every click
+   of a mouse. */
 
 :focus-visible {
   outline: 2px solid var(--color-brand-500);
   outline-offset: 2px;
 }
 
-/* Внутрь — только у ссылок, растянутых на всю ячейку: они начинаются вплотную
-   к краю контейнера с прокруткой, и снаружи рамку обрезало бы. Кнопкам внутри
-   таблицы это не нужно, а на цветной кнопке рамка внутри вообще пропадала. */
+/* Inset only for links stretched across a cell: they start flush with the edge
+   of the scrolling container, and outside the ring would be clipped. Buttons
+   inside a table do not need it, and on a coloured button an inset ring
+   disappeared altogether. */
 .table th > .sort:focus-visible,
 .table td > a:focus-visible {
   outline-offset: -2px;
 }
 
-/* Пункты меню стоят с зазором в 4px, рамка снаружи занимала бы его целиком
-   и липла к соседям. Внутри она ложится ровно по скруглению пункта. */
+/* Menu items sit 4px apart, and a ring outside would fill that gap entirely
+   and stick to its neighbours. Inset, it follows the rounding of the item. */
 .menu-item:focus-visible {
   outline-offset: -2px;
 }
 
-/* На синей кнопке рамка того же цвета не читается — берём темнее */
+/* on a blue button a ring of the same colour cannot be read, so take a darker
+   one */
 .btn-primary:focus-visible {
   outline-color: var(--color-brand-800);
 }
 
-/* У полей своя подсветка — рамка brand-300 и кольцо, — второй контур поверх
-   неё лишний. Правило после табличного, иначе фильтры в таблице получали бы
-   и то, и другое, а поля в формах только подсветку. */
+/* Fields have a highlight of their own — a brand-300 border and a ring — and a
+   second outline on top of it is one too many. The rule comes after the table
+   one, or filters in a table would get both while fields in a form got only the
+   highlight. */
 .field-input:focus-visible,
 .field-select:focus-visible {
   outline: none;

@@ -8,22 +8,24 @@ import (
 	"github.com/dbond762/gojiffy"
 )
 
-// PageLink — ссылка на страницу списка. Пустой Href — многоточие или текущая страница.
+// PageLink — a link to a page of a list. An empty Href is the ellipsis or the
+// current page.
 type PageLink struct {
 	Title   string
 	Href    string
 	Current bool
 }
 
-// ListFooter — подвал таблицы списка: живёт под ней всегда, счётчик показывается
-// в любом случае, ссылки на страницы появляются, когда страниц больше одной.
+// ListFooter — the footer of a list table: always there, the counter always
+// shown, page links appearing once there is more than one page.
 type ListFooter struct {
-	Text       string // готовая строка счётчика — «Показано 1–20 из 42» или «Записей нет»
-	Prev, Next string // "" — кнопка неактивна
+	Text       string // the finished counter line: "Showing 1-20 of 42" or "No records"
+	Prev, Next string // "" means the button is inactive
 	Pages      []PageLink
 }
 
-// pageWindow — сколько соседних страниц показывать слева и справа от текущей.
+// pageWindow — how many neighbouring pages to show on either side of the
+// current one.
 const pageWindow = 2
 
 func listFooter(path string, s gojiffy.Search, o gojiffy.Order, p gojiffy.Paging, total int) ListFooter {
@@ -46,7 +48,7 @@ func listFooter(path string, s gojiffy.Search, o gojiffy.Order, p gojiffy.Paging
 		f.Next = href(current + 1)
 	}
 
-	// первая, окно вокруг текущей, последняя; разрывы — многоточием
+	// the first, a window around the current one, the last; gaps as an ellipsis
 	shown := map[int]bool{1: true, pages: true, current: true}
 	for i := current - pageWindow; i <= current+pageWindow; i++ {
 		if i > 1 && i < pages {
@@ -71,7 +73,7 @@ func listFooter(path string, s gojiffy.Search, o gojiffy.Order, p gojiffy.Paging
 	return f
 }
 
-// listURL собирает адрес списка: фильтры и сортировка переживают переход по страницам.
+// listURL builds the address of a list: filters and sorting survive paging.
 func listURL(path string, s gojiffy.Search, o gojiffy.Order, page int) string {
 	q := url.Values{}
 	for name, value := range s {
@@ -80,7 +82,7 @@ func listURL(path string, s gojiffy.Search, o gojiffy.Order, page int) string {
 	if o.Field != "" {
 		sort := o.Field
 		if o.Desc {
-			sort = "-" + sort // минус вместо отдельного параметра направления
+			sort = "-" + sort // a minus instead of a separate direction parameter
 		}
 		q.Set("sort", sort)
 	}
@@ -93,7 +95,8 @@ func listURL(path string, s gojiffy.Search, o gojiffy.Order, page int) string {
 	return path + "?" + q.Encode()
 }
 
-// ParseOrder читает ?sort=login или ?sort=-login. Незаявленное поле отсекает ресурс.
+// ParseOrder reads ?sort=login or ?sort=-login. A field that was not declared
+// is cut off by the resource.
 func ParseOrder(query url.Values) gojiffy.Order {
 	sort := query.Get("sort")
 	if desc := strings.HasPrefix(sort, "-"); desc {
@@ -102,7 +105,8 @@ func ParseOrder(query url.Values) gojiffy.Order {
 	return gojiffy.Order{Field: sort}
 }
 
-// ParsePaging читает ?page= из запроса. Мусор и отрицательные значения — первая страница.
+// ParsePaging reads ?page= from the request. Rubbish and negative values give
+// the first page.
 func ParsePaging(query url.Values, perPage int) gojiffy.Paging {
 	page, _ := strconv.Atoi(query.Get("page"))
 	return gojiffy.Paging{Page: page, PerPage: perPage}

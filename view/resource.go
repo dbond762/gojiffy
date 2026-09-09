@@ -7,63 +7,64 @@ import (
 	"github.com/dbond762/gojiffy"
 )
 
-// Req — когда поле обязательно.
+// Req — when a field is required.
 type Req int
 
 const (
-	No       Req = iota // не обязательно
-	Yes                 // всегда
-	OnCreate            // только при создании (пароль: сменить можно, а можно и не трогать)
+	No       Req = iota // never
+	Yes                 // always
+	OnCreate            // only when creating (a password may be changed or left alone)
 )
 
-// Field — поле сущности целиком: и колонка списка, и поле формы.
-// Пустой Title убирает его из списка, пустой Label — из формы.
+// Field — a field of an entity in full: both a list column and a form field.
+// An empty Title keeps it out of the list, an empty Label out of the form.
 type Field[T any] struct {
-	Name string // имя параметра: search[Name] в списке, Name в форме
+	Name string // parameter name: search[Name] in a list, Name in a form
 
-	// список
+	// list
 	Title  string
-	Class  string // css-класс столбца, например для ширины
+	Class  string // css class of the column, for its width say
 	Search bool
-	// SearchChoices, если задан, рисует фильтр как <select> с фиксированным
-	// списком (плюс «Все» первым) вместо текстового поля — для перечислений
-	// и булевых признаков, где ILIKE по подстроке не подходит.
+	// SearchChoices, when set, draws the filter as a <select> with a fixed list
+	// (with All first) instead of a text field — for enumerations and boolean
+	// flags, where a substring match is the wrong question.
 	SearchChoices []Option
-	Sort          bool           // заголовок становится ссылкой сортировки
-	Text          func(T) string // значение ячейки, уже отформатированное
-	Href          func(T) string // если задан, ячейка становится ссылкой
-	Bool          func(T) bool   // если задан, ячейка рисуется галочкой/крестиком вместо Text
+	Sort          bool           // the heading becomes a sorting link
+	Text          func(T) string // the cell value, already formatted
+	Href          func(T) string // when set, the cell becomes a link
+	Bool          func(T) bool   // when set, the cell draws a tick or a cross instead of Text
 
-	// форма
+	// form
 	Label        string
 	Type         string
-	Help         string // подсказка под полем
-	HelpEdit     string // подсказка при редактировании, если отличается
+	Help         string // hint under the field
+	HelpEdit     string // hint when editing, if it differs
 	Required     Req
-	Options      string                       // ключ набора вариантов → <select>
-	Value        func(T) string               // значение поля; nil — берётся Text
-	Parse        func(*T, string, bool) error // разбор и валидация; bool — идёт создание
-	Readonly     func(T) bool                 // если вернул true, поле только показывается; Parse всё равно решает, что принять
+	Options      string                       // key of an option set, making it a <select>
+	Value        func(T) string               // the field value; nil takes Text instead
+	Parse        func(*T, string, bool) error // parsing and validation; the bool means creating
+	Readonly     func(T) bool                 // true only shows the field; what to accept is still up to Parse
 	Autocomplete string
 
-	Permission string // поле видно только с этим правом — и в списке, и в форме
+	Permission string // the field is visible only with this permission, in list and form alike
 }
 
-// Action — действие над записью: адрес считается из неё самой.
-// По умолчанию экшены живут общей пачкой в правом столбце списка (один рисуется
-// кнопкой, несколько — выпадающим списком). Column выносит действие в свой
-// отдельный столбец — для того, что должно быть на виду, а не под «Действиями».
+// Action — an action on a record: its address is worked out from the record
+// itself. By default actions live together in the rightmost column of the list
+// (one draws as a button, several as a dropdown). Column moves an action into a
+// column of its own — for what should be in plain sight rather than tucked
+// under Actions.
 type Action[T any] struct {
 	Title      string
-	TitleFor   func(T) string // подпись зависит от записи; nil — везде Title
+	TitleFor   func(T) string // caption depends on the record; nil uses Title everywhere
 	Href       func(T) string
-	Permission string         // "" — доступно всем
-	Column     bool           // свой столбец вместо общей пачки
-	Post       bool           // меняет состояние: кнопка-форма, а не ссылка
-	Confirm    func(T) string // текст подтверждения; nil или "" — без вопроса
+	Permission string         // "" is open to everyone
+	Column     bool           // a column of its own instead of the shared bunch
+	Post       bool           // changes state: a button in a form, not a link
+	Confirm    func(T) string // the confirmation text; nil or "" asks nothing
 }
 
-// rowAction переводит объявление в то, что рисует шаблон.
+// rowAction turns the declaration into what the template draws.
 func (a Action[T]) rowAction(item T) RowAction {
 	r := RowAction{Title: a.Title, Href: a.Href(item), Post: a.Post}
 	if a.TitleFor != nil {
@@ -78,31 +79,34 @@ func (a Action[T]) rowAction(item T) RowAction {
 func (f Field[T]) inList() bool { return f.Title != "" }
 func (f Field[T]) inForm() bool { return f.Label != "" }
 
-// Link — кнопка в шапке панели.
+// Link — a button in the panel header.
 type Link struct{ Title, Href string }
 
-// Resource — описание сущности: одни поля показываются в таблице, другие в форме,
-// третьи и там и там. Механика ниже одна на все сущности, см. resources.go.
+// Resource — the description of an entity: some fields show up in the table,
+// others in the form, others in both. The machinery below is the same for every
+// entity.
 //
-// M — модель, как её отдаёт база; T — запись формы (модель плюс то, чего в ней нет,
-// например пароль). Wrap превращает первое во второе для списка.
+// M is the model as the database hands it over; T is the form record (the model
+// plus what is not in it, a password say). Wrap turns the first into the second
+// for the list.
 type Resource[M, T any] struct {
-	Path         string         // /users — адрес списка, он же action формы поиска
-	Title        string         // Пользователи — заголовок списка
-	One          string         // Пользователь — заголовок формы редактирования
-	NewTitle     string         // Новый пользователь — заголовок формы создания
-	Empty        string         // текст пустого списка
-	PerPage      int            // строк на страницу; 0 — gojiffy.PerPageDefault
-	DefaultOrder gojiffy.Order  // сортировка, когда в запросе её нет или поле незнакомо
-	Href         func(T) string // адрес записи: action формы редактирования
+	Path         string         // /users — address of the list and action of the search form
+	Title        string         // Users — heading of the list
+	One          string         // User — heading of the edit form
+	NewTitle     string         // New user — heading of the create form
+	Empty        string         // the text of an empty list
+	PerPage      int            // rows per page; 0 means gojiffy.PerPageDefault
+	DefaultOrder gojiffy.Order  // sorting when the request has none or names an unknown field
+	Href         func(T) string // address of a record: action of the edit form
 	Wrap         func(M) T
 	Fields       []Field[T]
 	Actions      []Action[T]
 }
 
-// For отдаёт копию описания без того, на что у пользователя нет прав.
-// Хендлер работает уже с ней, поэтому скрытое поле не покажется в списке,
-// не появится в форме и не будет принято из запроса.
+// For hands back a copy of the description without whatever the user has no
+// permission for. A handler works with that copy, so a hidden field does not
+// show up in the list, does not appear in the form and is not accepted out of a
+// request.
 func (rs Resource[M, T]) For(perms gojiffy.Perms) Resource[M, T] {
 	fields := make([]Field[T], 0, len(rs.Fields))
 	for _, f := range rs.Fields {
@@ -120,13 +124,14 @@ func (rs Resource[M, T]) For(perms gojiffy.Perms) Resource[M, T] {
 	return rs
 }
 
-// Paging — какую страницу просит запрос.
+// Paging — which page the request asks for.
 func (rs Resource[M, T]) Paging(r *http.Request) gojiffy.Paging {
 	return ParsePaging(r.URL.Query(), rs.PerPage)
 }
 
-// ParseOrder берёт сортировку из запроса, если такое поле объявлено сортируемым.
-// Иначе — DefaultOrder: и когда в ?sort= пусто, и когда там чужое имя.
+// ParseOrder takes the sorting out of the request if that field was declared
+// sortable. Otherwise DefaultOrder: both when ?sort= is empty and when it names
+// something else.
 func (rs Resource[M, T]) ParseOrder(r *http.Request) gojiffy.Order {
 	o := ParseOrder(r.URL.Query())
 	for _, f := range rs.Fields {
@@ -137,9 +142,10 @@ func (rs Resource[M, T]) ParseOrder(r *http.Request) gojiffy.Order {
 	return rs.DefaultOrder
 }
 
-// ——— список ———
+// ——— list ———
 
-// ParseSearch берёт из запроса только поля с Search: объявление и есть валидация.
+// ParseSearch takes only fields marked Search out of the request: the
+// declaration is the validation.
 func (rs Resource[M, T]) ParseSearch(r *http.Request) gojiffy.Search {
 	q := r.URL.Query()
 	s := gojiffy.Search{}
@@ -154,8 +160,8 @@ func (rs Resource[M, T]) ParseSearch(r *http.Request) gojiffy.Search {
 	return s
 }
 
-// List собирает страницу списка: шапку, поля фильтров, строки — в порядке объявления
-// полей — и футер со счётчиком и ссылками на страницы.
+// List builds a page of the list: headings, filter fields, rows in the order
+// the fields were declared, and a footer with the counter and page links.
 func (rs Resource[M, T]) List(items []M, total int, p gojiffy.Paging, s gojiffy.Search, o gojiffy.Order) ListView {
 	t := Table{Empty: rs.Empty}
 
@@ -179,15 +185,15 @@ func (rs Resource[M, T]) List(items []M, total int, p gojiffy.Paging, s gojiffy.
 				if o.Desc {
 					col.SortDir = "desc"
 				}
-				next.Desc = !o.Desc // повторный клик переворачивает порядок
+				next.Desc = !o.Desc // clicking again flips the order
 			}
-			// сортировка сбрасывает страницу: на седьмой странице нового порядка делать нечего
+			// sorting resets the page: there is nothing to do on page seven of a new order
 			col.SortHref = listURL(rs.Path, s, next, 1)
 		}
 		t.Columns = append(t.Columns, col)
 	}
 
-	// вынесенные действия идут своими столбцами, остальные — одной пачкой следом
+	// actions of their own go into their own columns, the rest follow in one bunch
 	var own, menu []Action[T]
 	for _, a := range rs.Actions {
 		if a.Column {
@@ -202,7 +208,7 @@ func (rs Resource[M, T]) List(items []M, total int, p gojiffy.Paging, s gojiffy.
 	if len(menu) > 0 {
 		t.Columns = append(t.Columns, Column{Class: "col-actions"})
 	}
-	// без единого фильтра строка поиска не нужна, а с ней и форма вокруг таблицы
+	// with no filter at all the search row is pointless, and so is the form around the table
 	if filtered {
 		t.Action = rs.Path
 		t.Columns[len(t.Columns)-1].Actions = true
@@ -255,10 +261,10 @@ func (rs Resource[M, T]) List(items []M, total int, p gojiffy.Paging, s gojiffy.
 	}
 }
 
-// ——— форма ———
+// ——— form ———
 
-// Parse разбирает запрос по полям формы. creating меняет строгость: при создании
-// обязательное поле не может быть пустым.
+// Parse reads the request field by field. creating changes how strict that is:
+// when creating, a required field cannot be empty.
 func (rs Resource[M, T]) Parse(r *http.Request, item T, creating bool) (T, map[string]string) {
 	errs := map[string]string{}
 	for _, f := range rs.Fields {
@@ -272,8 +278,8 @@ func (rs Resource[M, T]) Parse(r *http.Request, item T, creating bool) (T, map[s
 	return item, errs
 }
 
-// Form собирает форму для шаблона: значения из записи, ошибки под полями,
-// варианты для select из opts.
+// Form builds the form for the template: values out of the record, errors under
+// the fields, options for a select out of opts.
 func (rs Resource[M, T]) Form(item T, creating bool, opts Options, errs map[string]string, csrf string) FormView {
 	v := FormView{CancelURL: rs.Path, CSRF: csrf}
 	if creating {
@@ -316,8 +322,8 @@ func (rs Resource[M, T]) Form(item T, creating bool, opts Options, errs map[stri
 	return v
 }
 
-// Options — наборы вариантов для <select>, известные только в рантайме
-// (роли из базы и подобное): ключ совпадает с Field.Options.
+// Options — option sets for a <select> that are known only at run time (roles
+// out of the database and the like): the key matches Field.Options.
 type Options map[string][]Option
 
 func selected(opts []Option, value string) []Option {
@@ -329,16 +335,16 @@ func selected(opts []Option, value string) []Option {
 	return out
 }
 
-// withAll добавляет первым пунктом «Все» (пустое значение — фильтр снят).
+// withAll puts All first (an empty value, meaning the filter is off).
 func withAll(opts []Option) []Option {
 	return append([]Option{{Label: t("All")}}, opts...)
 }
 
-// ListView — то, что уходит в шаблон list.html.
+// ListView — what goes into the list.html template.
 type ListView struct {
 	Title  string
 	New    *Link
-	Notice *Notice // выделенный блок над панелью, см. form.html
+	Notice *Notice // a highlighted block above the panel, see form.html
 	Table  Table
 	Footer ListFooter
 }

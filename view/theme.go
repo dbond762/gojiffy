@@ -11,38 +11,39 @@ import (
 	tailadmin "github.com/dbond762/gojiffy/themes/TailAdmin"
 )
 
-// Оформление — это файловая система, в корне которой лежат templates/ и
-// static/. Тип для неё не заведён намеренно: fs.FS уже описывает всё нужное, а
-// своя обёртка заставила бы каждую тему знать про либу.
+// A theme is a filesystem with templates/ and static/ at its root. There is
+// deliberately no type for it: fs.FS already describes everything needed, and
+// a wrapper of our own would force every theme to know about the library.
 
-// layers — тема и то, что приложение положило поверх неё. Ищем сверху вниз,
-// поэтому подменяется по одному файлу, а не всё оформление разом.
+// layers — the theme and whatever the application laid on top of it. We look
+// from the top down, so files are replaced one at a time rather than the whole
+// theme at once.
 var layers []fs.FS
 
-// SetTheme меняет оформление целиком. fsys — файловая система с templates/ и
-// static/ в корне, см. themes/TailAdmin. Вызывать при запуске, до первой
-// отрисовки, как SetAppName.
+// SetTheme replaces the theme entirely. fsys is a filesystem with templates/
+// and static/ at its root, see themes/TailAdmin. Call it at startup, before the
+// first render, as with SetAppName.
 //
-// Ошибка означает, что тема неполная или шаблон в ней не собрался; оформление
-// при этом остаётся прежним, страницы не ломаются. Он же возвращает всё на
-// место после Override: SetTheme(tailadmin.FS).
+// An error means the theme is incomplete or a template in it did not parse; the
+// theme in use stays as it was and pages keep working. It is also what puts
+// everything back after Override: SetTheme(tailadmin.FS).
 func SetTheme(fsys fs.FS) error { return apply([]fs.FS{fsys}) }
 
-// Override кладёт файлы поверх текущего оформления: что есть в fsys — берётся
-// оттуда, остальное остаётся от темы. Форма та же (templates/..., static/...),
-// и подменять файл нужно по тому же пути.
+// Override lays files over the current theme: whatever is in fsys comes from
+// there, the rest stays with the theme. The shape is the same (templates/...,
+// static/...), and a file has to be replaced at the same path.
 //
-// Вызовов может быть несколько, каждый следующий слой перекрывает предыдущие.
+// It can be called more than once, each layer covering the ones before it.
 func Override(fsys fs.FS) error { return apply(slices.Concat(layers, []fs.FS{fsys})) }
 
-// Static отдаёт static/ оформления. Монтировать по /static/:
+// Static serves the static/ of the theme. Mount it at /static/:
 //
 //	mux.Handle("GET /static/", view.Static())
 //
-// Этот адрес зашит в шаблонах (<link rel="stylesheet" href="/static/app.css">),
-// поэтому оба конца договорённости держит либа — и смена темы роутинга не
-// касается. Слои читаются на каждый запрос, так что порядок вызова со SetTheme
-// неважен.
+// That address is baked into the templates (<link rel="stylesheet"
+// href="/static/app.css">), so both ends of the arrangement are held by the
+// library and changing the theme leaves routing alone. The layers are read on
+// every request, so the order against SetTheme does not matter.
 func Static() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.FileServerFS(overlay(layers)).ServeHTTP(w, r)
@@ -50,16 +51,17 @@ func Static() http.Handler {
 }
 
 func init() {
-	// Тема по умолчанию вшита в бинарь: сломанный шаблон здесь — ошибка сборки
-	// либы, а не приложения, поэтому падаем сразу, как раньше template.Must.
+	// The default theme is embedded in the binary: a broken template here is a
+	// build error of the library and not of an application, so we fail at once,
+	// the way template.Must used to.
 	if err := SetTheme(tailadmin.FS); err != nil {
 		panic(err)
 	}
 }
 
-// apply собирает шаблоны заново и подменяет их разом. Именно заново: набор
-// html/template после разбора не доопределить, а старый живёт, пока на него
-// ссылается уже начатый Render.
+// apply parses the templates afresh and swaps them in one go. Afresh because an
+// html/template set cannot be added to after parsing, and the old one lives on
+// as long as a Render already under way still refers to it.
 func apply(l []fs.FS) error {
 	fsys := overlay(l)
 
@@ -68,29 +70,31 @@ func apply(l []fs.FS) error {
 		tpl, err := template.New(name).Funcs(funcs).ParseFS(fsys,
 			"templates/layout.html", "templates/partials/*.html", "templates/"+name)
 		if err != nil {
-			return fmt.Errorf("шаблон %s: %w", name, err)
+			return fmt.Errorf("template %s: %w", name, err)
 		}
 		built[name] = tpl
 	}
-	// Вход собирается без layout: это отдельный документ, и точка входа в нём
-	// названа именем файла, см. Render.
+	// The sign-in page is parsed without the layout: it is a document of its own
+	// and its entry point is named after the file, see Render.
 	login, err := template.New("login.html").Funcs(funcs).ParseFS(fsys,
 		"templates/partials/*.html", "templates/login.html")
 	if err != nil {
-		return fmt.Errorf("шаблон login.html: %w", err)
+		return fmt.Errorf("template login.html: %w", err)
 	}
 	built["login.html"] = login
 
-	// Присваивание последней строкой: неудачная тема не должна оставлять
-	// приложение без оформления — только поэтому возвращаемая ошибка и нужна.
+	// The assignment comes last: a theme that did not parse must not leave the
+	// application with no look at all — that is the whole point of the error
+	// this returns.
 	layers, templates = l, built
 	return nil
 }
 
-// overlay — стопка файловых систем: тема снизу, слои приложения сверху.
-// Реализуем fs.FS, а не свой разбор шаблонов: тогда ParseFS, fs.Glob и
-// http.FileServerFS работают со слоями сами, а вызовы ParseFS в apply остаются
-// теми же, что были до появления тем.
+// overlay — a stack of filesystems: the theme at the bottom, the layers of the
+// application above it. We implement fs.FS instead of parsing templates
+// ourselves: that way ParseFS, fs.Glob and http.FileServerFS handle the layers
+// on their own, and the ParseFS calls in apply stay exactly what they were
+// before themes existed.
 type overlay []fs.FS
 
 func (o overlay) Open(name string) (fs.File, error) {
@@ -102,16 +106,17 @@ func (o overlay) Open(name string) (fs.File, error) {
 	return nil, &fs.PathError{Op: "open", Path: name, Err: fs.ErrNotExist}
 }
 
-// ReadDir нужен ради partials/*.html: без него fs.Glob прочитал бы каталог
-// одного слоя и потерял бы partials остальных. Одноимённые файлы схлопываются
-// в верхний — он же откроется на чтение.
+// ReadDir is needed for the sake of partials/*.html: without it fs.Glob would
+// read the directory of one layer and lose the partials of the rest. Files
+// sharing a name collapse into the topmost one, which is also the one that
+// opens for reading.
 func (o overlay) ReadDir(name string) ([]fs.DirEntry, error) {
 	var all []fs.DirEntry
 	seen := map[string]bool{}
 	for i := len(o) - 1; i >= 0; i-- {
 		entries, err := fs.ReadDir(o[i], name)
 		if err != nil {
-			continue // в этом слое каталога нет — значит есть в другом
+			continue // this layer has no such directory, so another one does
 		}
 		for _, e := range entries {
 			if !seen[e.Name()] {
@@ -123,8 +128,8 @@ func (o overlay) ReadDir(name string) ([]fs.DirEntry, error) {
 	if all == nil {
 		return nil, &fs.PathError{Op: "readdir", Path: name, Err: fs.ErrNotExist}
 	}
-	// fs.ReadDir обязана отдавать отсортированное, и здесь это не формальность:
-	// от порядка разбора зависит, чей {{define}} окажется последним.
+	// fs.ReadDir is required to return sorted entries, and here that is not a
+	// formality: the parse order decides whose {{define}} comes last.
 	slices.SortFunc(all, func(a, b fs.DirEntry) int { return strings.Compare(a.Name(), b.Name()) })
 	return all, nil
 }

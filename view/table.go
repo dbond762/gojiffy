@@ -1,32 +1,34 @@
 package view
 
-// Данные для partials/table.html — про конкретные сущности шаблон не знает.
+// Data for partials/table.html — the template knows nothing of any entity.
 
-// Column с непустым Search рисует под заголовком поле фильтра search[Search]:
-// текстовый input, а с непустым SearchOptions — select с фиксированным списком
-// (первый вариант — пустое значение, «снять фильтр»).
+// A Column with Search set draws a search[Search] filter field under its
+// heading: a text input, or a select with a fixed list when SearchOptions is
+// set as well (its first option is the empty value, clearing the filter).
 type Column struct {
 	Title, Class  string
-	Search        string // имя параметра поиска или "" — фильтра нет
-	Query         string // что уже введено
+	Search        string // name of the search parameter, or "" for no filter
+	Query         string // what has been entered already
 	SearchOptions []Option
-	Actions       bool   // в строке фильтров сюда встают кнопки «Найти»/«Сбросить»
-	SortHref      string // ссылка «отсортировать по этому столбцу»; "" — сортировка запрещена
-	SortDir       string // текущее направление: "asc", "desc" или "" — сейчас не по нему
+	Actions       bool   // the search and reset buttons stand here in the filter row
+	SortHref      string // link to sort by this column; "" means sorting is not allowed
+	SortDir       string // current direction: "asc", "desc", or "" when not sorted by it
 }
 
-// RowAction — действие над строкой. Post рисует кнопку, отправляющую общую форму
-// из layout: сама таблица уже завёрнута в форму поиска, а вложенные формы в HTML
-// запрещены — кнопка привязывается к внешней через form/formaction.
+// RowAction — an action on a row. Post draws a button that submits the shared
+// form from the layout: the table itself is already wrapped in the search form
+// and nested forms are not allowed in HTML, so the button is tied to the outer
+// one through form/formaction.
 type RowAction struct {
 	Title, Href string
 	Post        bool
-	Confirm     string // текст подтверждения; "" — без вопроса
+	Confirm     string // the confirmation text; "" asks nothing
 }
 
-// Cell с непустым Href рендерится ссылкой, с непустым Actions — колонкой действий:
-// одно действие кнопкой, несколько — выпадающим списком. Class — необязательный
-// css-класс ячейки, сейчас нужен только для галочки/крестика (см. Field.Bool).
+// A Cell with Href renders as a link, one with Actions as the actions column:
+// a single action as a button, several as a dropdown. Class is an optional css
+// class for the cell, needed at the moment only for the tick and cross (see
+// Field.Bool).
 type Cell struct {
 	Text, Href, Class string
 	Actions           []RowAction
@@ -35,6 +37,6 @@ type Cell struct {
 type Table struct {
 	Columns []Column
 	Rows    [][]Cell
-	Empty   string // текст, если строк нет
-	Action  string // куда уходит форма поиска; "" — форма не рисуется
+	Empty   string // the text to show when there are no rows
+	Action  string // where the search form goes; "" draws no form
 }

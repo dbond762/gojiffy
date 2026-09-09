@@ -1,5 +1,5 @@
-// Package scheduler — минимальный аналог cron: одна задача на фиксированное
-// время суток.
+// Package scheduler — the smallest thing that acts like cron: one job at a
+// fixed time of day.
 package scheduler
 
 import (
@@ -8,10 +8,11 @@ import (
 	"time"
 )
 
-// RunDaily будит job раз в сутки в ближайшие hour:min (сегодня, если время ещё
-// не прошло, иначе завтра) и повторяет вечно. Ошибку job логирует и не падает —
-// следующий запуск всё равно наступит через сутки. Блокирует вызывающую
-// горутину, поэтому запускать через go scheduler.RunDaily(...).
+// RunDaily wakes job once a day at the next hour:min (today if that time has
+// not passed yet, tomorrow otherwise) and repeats forever. An error out of job
+// is logged and brings nothing down — the next run comes round in a day
+// regardless. It blocks the calling goroutine, so start it as
+// go scheduler.RunDaily(...).
 func RunDaily(ctx context.Context, hour, min int, job func(context.Context) error) {
 	for {
 		wait := time.Until(nextRun(hour, min))
@@ -22,7 +23,7 @@ func RunDaily(ctx context.Context, hour, min int, job func(context.Context) erro
 		}
 
 		if err := job(ctx); err != nil {
-			log.Printf("scheduler: задача завершилась с ошибкой: %v", err)
+			log.Printf("scheduler: job finished with an error: %v", err)
 		}
 	}
 }
