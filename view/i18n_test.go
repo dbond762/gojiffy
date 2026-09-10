@@ -59,7 +59,7 @@ func TestResourceLabelsPassThrough(t *testing.T) {
 		Empty:    "Порожньо",
 		Href:     func(string) string { return "/x" },
 		Fields: []Field[string]{{
-			Name: "v", Title: "Значення", Label: "Значення", Help: "Підказка",
+			Name: "v", Caption: "Значення", Help: "Підказка",
 			Text: func(s string) string { return s },
 		}},
 		Actions: []Action[string]{{Title: "Змінити", Href: func(string) string { return "/x" }}},

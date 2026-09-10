@@ -16,13 +16,19 @@ const (
 	OnCreate            // only when creating (a password may be changed or left alone)
 )
 
-// Field — a field of an entity in full: both a list column and a form field.
-// An empty Title keeps it out of the list, an empty Label out of the form.
+// Field — a field of an entity in full. By default it is in both places at
+// once, a column of the list and a field of the form, because most of them
+// are: ListOnly and EditOnly are for the few that are not.
 type Field[T any] struct {
 	Name string // parameter name: search[Name] in a list, Name in a form
 
+	// Caption — the heading of the column and, unless Label says otherwise, the
+	// label of the form field: one word for one field, said once.
+	Caption  string
+	ListOnly bool // a column and nothing more: an id, a date the record carries
+	EditOnly bool // a form field and nothing more: a password, a choice from a reference
+
 	// list
-	Title  string
 	Class  string // css class of the column, for its width say
 	Search bool
 	// SearchChoices, when set, draws the filter as a <select> with a fixed list
@@ -35,7 +41,7 @@ type Field[T any] struct {
 	Bool          func(T) bool   // when set, the cell draws a tick or a cross instead of Text
 
 	// form
-	Label        string
+	Label        string // when the form needs other words than the list; empty takes Caption
 	Type         string
 	Help         string // hint under the field
 	HelpEdit     string // hint when editing, if it differs
@@ -76,8 +82,17 @@ func (a Action[T]) rowAction(item T) RowAction {
 	return r
 }
 
-func (f Field[T]) inList() bool { return f.Title != "" }
-func (f Field[T]) inForm() bool { return f.Label != "" }
+func (f Field[T]) inList() bool { return !f.EditOnly }
+func (f Field[T]) inForm() bool { return !f.ListOnly }
+
+// label — what the form calls the field. Saying it twice is the common case,
+// so Caption stands in and Label is only for when the two must differ.
+func (f Field[T]) label() string {
+	if f.Label != "" {
+		return f.Label
+	}
+	return f.Caption
+}
 
 // Link — a button in the panel header.
 type Link struct{ Title, Href string }
@@ -94,7 +109,7 @@ type Resource[T any] struct {
 	Title        string         // Users — heading of the list
 	One          string         // User — heading of the edit form
 	NewTitle     string         // New user — heading of the create form
-	Empty        string         // the text of an empty list
+	Empty        string         // the text of an empty list; empty is "Nothing found"
 	PerPage      int            // rows per page; 0 means gojiffy.PerPageDefault
 	DefaultOrder gojiffy.Order  // sorting when the request has none or names an unknown field
 	Href         func(T) string // address of a record: action of the edit form
@@ -162,14 +177,19 @@ func (rs Resource[T]) ParseSearch(r *http.Request) gojiffy.Search {
 // List builds a page of the list: headings, filter fields, rows in the order
 // the fields were declared, and a footer with the counter and page links.
 func (rs Resource[T]) List(items []T, total int, p gojiffy.Paging, s gojiffy.Search, o gojiffy.Order) ListView {
-	t := Table{Empty: rs.Empty}
+	empty := rs.Empty
+	if empty == "" {
+		empty = t("Nothing found")
+	}
+
+	tbl := Table{Empty: empty}
 
 	filtered := false
 	for _, f := range rs.Fields {
 		if !f.inList() {
 			continue
 		}
-		col := Column{Title: f.Title, Class: f.Class}
+		col := Column{Title: f.Caption, Class: f.Class}
 		if f.Search {
 			col.Search, col.Query = f.Name, s[f.Name]
 			filtered = true
@@ -189,7 +209,7 @@ func (rs Resource[T]) List(items []T, total int, p gojiffy.Paging, s gojiffy.Sea
 			// sorting resets the page: there is nothing to do on page seven of a new order
 			col.SortHref = listURL(rs.Path, s, next, 1)
 		}
-		t.Columns = append(t.Columns, col)
+		tbl.Columns = append(tbl.Columns, col)
 	}
 
 	// actions of their own go into their own columns, the rest follow in one bunch
@@ -202,19 +222,19 @@ func (rs Resource[T]) List(items []T, total int, p gojiffy.Paging, s gojiffy.Sea
 		}
 	}
 	for range own {
-		t.Columns = append(t.Columns, Column{Class: "col-actions"})
+		tbl.Columns = append(tbl.Columns, Column{Class: "col-actions"})
 	}
 	if len(menu) > 0 {
-		t.Columns = append(t.Columns, Column{Class: "col-actions"})
+		tbl.Columns = append(tbl.Columns, Column{Class: "col-actions"})
 	}
 	// with no filter at all the search row is pointless, and so is the form around the table
 	if filtered {
-		t.Action = rs.Path
-		t.Columns[len(t.Columns)-1].Actions = true
+		tbl.Action = rs.Path
+		tbl.Columns[len(tbl.Columns)-1].Actions = true
 	}
 
 	for _, row := range items {
-		cells := make([]Cell, 0, len(t.Columns))
+		cells := make([]Cell, 0, len(tbl.Columns))
 		for _, f := range rs.Fields {
 			if !f.inList() {
 				continue
@@ -244,7 +264,7 @@ func (rs Resource[T]) List(items []T, total int, p gojiffy.Paging, s gojiffy.Sea
 			}
 			cells = append(cells, Cell{Actions: actions})
 		}
-		t.Rows = append(t.Rows, cells)
+		tbl.Rows = append(tbl.Rows, cells)
 	}
 
 	var new_ *Link
@@ -254,7 +274,7 @@ func (rs Resource[T]) List(items []T, total int, p gojiffy.Paging, s gojiffy.Sea
 	return ListView{
 		Title:  rs.Title,
 		New:    new_,
-		Table:  t,
+		Table:  tbl,
 		Footer: listFooter(rs.Path, s, o, p, total),
 	}
 }
@@ -293,7 +313,7 @@ func (rs Resource[T]) Form(item T, creating bool, opts Options, errs map[string]
 		}
 		fv := FieldView{
 			Name:         f.Name,
-			Label:        f.Label,
+			Label:        f.label(),
 			Type:         f.Type,
 			Help:         f.Help,
 			Autocomplete: f.Autocomplete,

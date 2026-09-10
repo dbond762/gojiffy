@@ -18,10 +18,12 @@ scheduler/                     суточный запуск фоновой за
 
 ## Ресурс
 
-Раздел описывается один раз: поле служит разом колонкой списка и полем формы.
-Пустой `Title` убирает его из списка, пустой `Label` — из формы. Все подписи —
-готовый текст: если приложение их переводит, описание становится функцией,
-см. «Переводы».
+Раздел описывается один раз: поле по умолчанию служит разом колонкой списка и
+полем формы, и называется в обоих местах одинаково — `Caption`. Поле, которому
+место только в одном из двух, говорит это прямо: `ListOnly` (id, дата) или
+`EditOnly` (пароль, выбор из справочника). `Label` нужен, только если в форме
+подпись должна отличаться от заголовка колонки. Все подписи — готовый текст:
+если приложение их переводит, описание становится функцией, см. «Переводы».
 
 ```go
 type Article struct {
@@ -34,8 +36,7 @@ var Articles = view.Resource[Article]{
 	Href: func(a Article) string { return "/articles/" + strconv.Itoa(a.ID) },
 	Fields: []view.Field[Article]{{
 		Name:     "title",
-		Title:    "Заголовок",
-		Label:    "Заголовок",
+		Caption:  "Заголовок",
 		Search:   true,
 		Sort:     true,
 		Required: view.Yes,
@@ -336,10 +337,10 @@ view.SetLanguage("ru")
 печатаются как есть:
 
 ```go
-func Articles() view.Resource[Article, Article] {
-	return view.Resource[Article, Article]{
+func Articles() view.Resource[Article] {
+	return view.Resource[Article]{
 		Title:  "Статьи",
-		Fields: []view.Field[Article]{{Label: "Заголовок"}},
+		Fields: []view.Field[Article]{{Caption: "Заголовок"}},
 	}
 }
 ```
