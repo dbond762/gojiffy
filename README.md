@@ -210,10 +210,24 @@ Tailwind CSS. Собранный `themes/TailAdmin/static/app.css` лежит в
 tailwindcss -i themes/TailAdmin/styles/app.css -o themes/TailAdmin/static/app.css --minify
 ```
 
-Отдаёт его либа сама, приложению остаётся смонтировать:
+Отдаёт его либа сама, но адрес выбирает приложение — и по нему же либа его
+подключает в своих шаблонах:
 
 ```go
-mux.Handle("GET /static/", view.Static())
+mux.Handle("GET /theme/", view.Static("/theme/"))
+```
+
+Адрес аргументом, а не константой в либе, потому что имя вроде `/static/`
+принадлежит тому, кто пишет приложение: заняв его, либа заняла бы его у всех
+сразу, а назвав маршрут своим именем — нагрубила бы иначе. Один вызов, а не
+монтирование плюс сеттер, чтобы эти двое не разъехались.
+
+Своя вёрстка — своими стилями: их файл отдаёт приложение само, а либа лишь
+подключает его после темы.
+
+```go
+mux.Handle("GET /assets/", http.StripPrefix("/assets/", http.FileServerFS(mine)))
+view.SetStyles("/assets/app.css")
 ```
 
 ## Тема
@@ -247,7 +261,7 @@ view.Override(mine)             // свои файлы поверх станда
 | `templates/page.html` | `{{define "content"}}` | `view.Page`, рисует `.Blocks` |
 | `templates/login.html` | `{{define "login.html"}}` | `view.FormView`, без `Page` |
 | `templates/partials/*.html` | `list`, `form-panel`, `notice`, `form`, `field`, `table`, `row-actions`, `list-footer` | см. ниже |
-| `static/app.css` | — | отдаётся по `/static/app.css` |
+| `static/app.css` | — | отдаётся там, куда смонтировали `view.Static` |
 
 Страница одна на все разделы, потому что показывает она блоки, а не свой вид
 записи:
@@ -289,9 +303,10 @@ view.Override(mine)             // свои файлы поверх станда
 `static/app.css` темы собран сканированием её собственных `templates/`
 (`@source "../templates"`). Класса, которого там не было, в готовом CSS нет —
 свой шаблон его не получит. Варианты: держаться классов темы (`btn`,
-`btn-primary`, `field-input`, `field-select`, `table`, `menu-item`…); собрать
-свой CSS со своим `@source` и положить его слоем в `static/app.css`; либо
-переопределить `layout.html` и подключить своё вторым `<link>`.
+`btn-primary`, `field-input`, `field-select`, `table`, `menu-item`…); либо
+написать свой css и подключить его через `view.SetStyles` — он идёт после
+темы, так что переменные темы (`--color-gray-800`, `--radius-lg`) в нём
+доступны, а свои правила перебивают её утилиты.
 
 ## Переводы
 
