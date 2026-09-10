@@ -95,17 +95,55 @@ func TestSetThemeIncomplete(t *testing.T) {
 	}
 }
 
-// Static files are served by the library and not by the application: the
-// /static/app.css address is baked into the templates.
-func TestStaticServesTheme(t *testing.T) {
-	w := httptest.NewRecorder()
-	Static().ServeHTTP(w, httptest.NewRequest("GET", "/static/app.css", nil))
+// The address is the application's to pick, and the one thing that can quietly
+// come apart is that a page names it in markup while the mux names it in Go.
+// So mount somewhere of our own choosing, take the address back off a rendered
+// page, and ask the mux for exactly that.
+func TestStaticIsWhereThePageLooks(t *testing.T) {
+	t.Cleanup(func() { Static("/static/") })
 
+	mux := http.NewServeMux()
+	mux.Handle("GET /files/of/the/theme/", Static("/files/of/the/theme/"))
+
+	page := httptest.NewRecorder()
+	Render(page, http.StatusOK, "page.html", Page{Title: "x"})
+
+	const mark = `<link rel="stylesheet" href="`
+	body := page.Body.String()
+	i := strings.Index(body, mark)
+	if i < 0 {
+		t.Fatal("the page links no stylesheet at all")
+	}
+	href := body[i+len(mark):]
+	href = href[:strings.IndexByte(href, '"')]
+
+	if !strings.HasPrefix(href, "/files/of/the/theme/") {
+		t.Errorf("the page still links %s, not where it was mounted", href)
+	}
+
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, httptest.NewRequest("GET", href, nil))
 	if w.Code != http.StatusOK {
-		t.Fatalf("code %d", w.Code)
+		t.Fatalf("the page links %s, the mux answers %d", href, w.Code)
 	}
 	if w.Body.Len() == 0 {
-		t.Error("empty css")
+		t.Errorf("%s came back empty", href)
+	}
+}
+
+// A prefix given without its trailing slash is the same prefix: the caller
+// writes the address twice on that line, once for the mux and once for us, and
+// the two need not be spelled identically.
+func TestStaticTakesAPrefixEitherWay(t *testing.T) {
+	t.Cleanup(func() { Static("/static/") })
+
+	mux := http.NewServeMux()
+	mux.Handle("GET /files/", Static("/files"))
+
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, httptest.NewRequest("GET", "/files/app.css", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("code %d", w.Code)
 	}
 }
 

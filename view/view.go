@@ -31,8 +31,10 @@ var funcs = template.FuncMap{
 	"app":  func() string { return appName },
 	"lang": func() string { return lib.Language() },
 	"t":    t,
+	// asset — the address of a file of the theme, wherever it was mounted;
 	// styles and scripts — what the application added of its own, see SetStyle
 	// and SetScript.
+	"asset":   func(name string) string { return staticPath + name },
 	"styles":  func() []string { return styles },
 	"scripts": func() []string { return scripts },
 }

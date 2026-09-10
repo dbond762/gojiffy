@@ -38,18 +38,38 @@ func SetTheme(fsys fs.FS) error { return apply([]fs.FS{fsys}) }
 // It can be called more than once, each layer covering the ones before it.
 func Override(fsys fs.FS) error { return apply(slices.Concat(layers, []fs.FS{fsys})) }
 
-// Static serves the static/ of the theme. Mount it at /static/:
+// staticPath — where the theme's files were mounted. Templates ask for them
+// through {{asset}} and never name an address themselves, so the address is
+// the application's to pick: a name as ordinary as /static/ belongs to whoever
+// is building the application, not to a library it happens to use. The default
+// is for those who do not care.
+var staticPath = "/static/"
+
+// Static serves the static/ of the theme, from the address it is given, and
+// tells the templates to link it from there:
 //
-//	mux.Handle("GET /static/", view.Static())
+//	mux.Handle("GET /assets/", view.Static("/assets/"))
 //
-// That address is baked into the templates (<link rel="stylesheet"
-// href="/static/app.css">), so both ends of the arrangement are held by the
-// library and changing the theme leaves routing alone. The layers are read on
-// every request, so the order against SetTheme does not matter.
-func Static() http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.FileServerFS(overlay(layers)).ServeHTTP(w, r)
-	})
+// The address is an argument of this one call and not a setter of its own,
+// because the two must not drift apart: it is in the markup as much as in the
+// routing, and a page whose css is served elsewhere is a page with no css at
+// all. Stripping the prefix is ours for the same reason — the caller has
+// already said it once here.
+//
+// The layers are read on every request, so the order against SetTheme does not
+// matter.
+func Static(prefix string) http.Handler {
+	staticPath = strings.TrimSuffix(prefix, "/") + "/"
+
+	return http.StripPrefix(staticPath,
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			sub, err := fs.Sub(overlay(layers), "static")
+			if err != nil {
+				http.NotFound(w, r)
+				return
+			}
+			http.FileServerFS(sub).ServeHTTP(w, r)
+		}))
 }
 
 func init() {
