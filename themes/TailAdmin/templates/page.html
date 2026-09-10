@@ -1,0 +1,6 @@
+{{define "content"}}
+{{/* A page is its blocks: render draws each by the name of its partial, so a
+   block kind the library has never heard of works as soon as the theme has a
+   partial for it. */}}
+{{range .Blocks}}{{render .}}{{end}}
+{{end}}

@@ -1,16 +1,15 @@
-{{define "content"}}
-{{template "notice" .Data.Notice}}
+{{define "form-panel"}}
 <div class="rounded-2xl border border-gray-200 bg-white">
 	<div class="flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 px-5 py-4">
 		<h3 class="text-theme-xl font-semibold text-gray-800">{{.Title}}</h3>
 		{{/* A form of its own for each action: nested forms are not allowed in HTML. */}}
-		{{range .Data.Buttons}}
+		{{range .Buttons}}
 		<form method="post" action="{{.Action}}"{{with .Confirm}} data-confirm="{{.}}"{{end}}>
 			<input type="hidden" name="_csrf" value="{{$.CSRF}}">
 			<button type="submit" class="btn {{.Class}}">{{.Title}}</button>
 		</form>
 		{{end}}
 	</div>
-	<div class="p-5">{{template "form" .Data}}</div>
+	<div class="p-5">{{template "form" .}}</div>
 </div>
 {{end}}

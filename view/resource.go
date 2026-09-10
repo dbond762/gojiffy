@@ -86,10 +86,10 @@ type Link struct{ Title, Href string }
 // others in the form, others in both. The machinery below is the same for every
 // entity.
 //
-// M is the model as the database hands it over; T is the form record (the model
-// plus what is not in it, a password say). Wrap turns the first into the second
-// for the list.
-type Resource[M, T any] struct {
+// T is the record as a page sees it — usually the model itself. Where a form
+// needs more than the model holds (a password, say), T is a wider record and
+// the list is built by MapList.
+type Resource[T any] struct {
 	Path         string         // /users — address of the list and action of the search form
 	Title        string         // Users — heading of the list
 	One          string         // User — heading of the edit form
@@ -98,7 +98,6 @@ type Resource[M, T any] struct {
 	PerPage      int            // rows per page; 0 means gojiffy.PerPageDefault
 	DefaultOrder gojiffy.Order  // sorting when the request has none or names an unknown field
 	Href         func(T) string // address of a record: action of the edit form
-	Wrap         func(M) T
 	Fields       []Field[T]
 	Actions      []Action[T]
 }
@@ -107,7 +106,7 @@ type Resource[M, T any] struct {
 // permission for. A handler works with that copy, so a hidden field does not
 // show up in the list, does not appear in the form and is not accepted out of a
 // request.
-func (rs Resource[M, T]) For(perms gojiffy.Perms) Resource[M, T] {
+func (rs Resource[T]) For(perms gojiffy.Perms) Resource[T] {
 	fields := make([]Field[T], 0, len(rs.Fields))
 	for _, f := range rs.Fields {
 		if f.Permission == "" || perms.Can(f.Permission) {
@@ -125,14 +124,14 @@ func (rs Resource[M, T]) For(perms gojiffy.Perms) Resource[M, T] {
 }
 
 // Paging — which page the request asks for.
-func (rs Resource[M, T]) Paging(r *http.Request) gojiffy.Paging {
+func (rs Resource[T]) Paging(r *http.Request) gojiffy.Paging {
 	return ParsePaging(r.URL.Query(), rs.PerPage)
 }
 
 // ParseOrder takes the sorting out of the request if that field was declared
 // sortable. Otherwise DefaultOrder: both when ?sort= is empty and when it names
 // something else.
-func (rs Resource[M, T]) ParseOrder(r *http.Request) gojiffy.Order {
+func (rs Resource[T]) ParseOrder(r *http.Request) gojiffy.Order {
 	o := ParseOrder(r.URL.Query())
 	for _, f := range rs.Fields {
 		if f.Sort && f.inList() && f.Name == o.Field {
@@ -146,7 +145,7 @@ func (rs Resource[M, T]) ParseOrder(r *http.Request) gojiffy.Order {
 
 // ParseSearch takes only fields marked Search out of the request: the
 // declaration is the validation.
-func (rs Resource[M, T]) ParseSearch(r *http.Request) gojiffy.Search {
+func (rs Resource[T]) ParseSearch(r *http.Request) gojiffy.Search {
 	q := r.URL.Query()
 	s := gojiffy.Search{}
 	for _, f := range rs.Fields {
@@ -162,7 +161,7 @@ func (rs Resource[M, T]) ParseSearch(r *http.Request) gojiffy.Search {
 
 // List builds a page of the list: headings, filter fields, rows in the order
 // the fields were declared, and a footer with the counter and page links.
-func (rs Resource[M, T]) List(items []M, total int, p gojiffy.Paging, s gojiffy.Search, o gojiffy.Order) ListView {
+func (rs Resource[T]) List(items []T, total int, p gojiffy.Paging, s gojiffy.Search, o gojiffy.Order) ListView {
 	t := Table{Empty: rs.Empty}
 
 	filtered := false
@@ -214,8 +213,7 @@ func (rs Resource[M, T]) List(items []M, total int, p gojiffy.Paging, s gojiffy.
 		t.Columns[len(t.Columns)-1].Actions = true
 	}
 
-	for _, item := range items {
-		row := rs.Wrap(item)
+	for _, row := range items {
 		cells := make([]Cell, 0, len(t.Columns))
 		for _, f := range rs.Fields {
 			if !f.inList() {
@@ -265,7 +263,7 @@ func (rs Resource[M, T]) List(items []M, total int, p gojiffy.Paging, s gojiffy.
 
 // Parse reads the request field by field. creating changes how strict that is:
 // when creating, a required field cannot be empty.
-func (rs Resource[M, T]) Parse(r *http.Request, item T, creating bool) (T, map[string]string) {
+func (rs Resource[T]) Parse(r *http.Request, item T, creating bool) (T, map[string]string) {
 	errs := map[string]string{}
 	for _, f := range rs.Fields {
 		if !f.inForm() || f.Parse == nil {
@@ -279,9 +277,10 @@ func (rs Resource[M, T]) Parse(r *http.Request, item T, creating bool) (T, map[s
 }
 
 // Form builds the form for the template: values out of the record, errors under
-// the fields, options for a select out of opts.
-func (rs Resource[M, T]) Form(item T, creating bool, opts Options, errs map[string]string, csrf string) FormView {
-	v := FormView{CancelURL: rs.Path, CSRF: csrf}
+// the fields, options for a select out of opts. The CSRF token is not asked for
+// here — a page puts it into every form it draws, see Handler and RenderPage.
+func (rs Resource[T]) Form(item T, creating bool, opts Options, errs map[string]string) FormView {
+	v := FormView{CancelURL: rs.Path}
 	if creating {
 		v.Title, v.Submit, v.Action = rs.NewTitle, t("Create"), rs.Path
 	} else {
@@ -344,7 +343,34 @@ func withAll(opts []Option) []Option {
 type ListView struct {
 	Title  string
 	New    *Link
-	Notice *Notice // a highlighted block above the panel, see form.html
 	Table  Table
 	Footer ListFooter
+}
+
+// ListBlock is the whole of a list page: it takes the filters, the sorting and
+// the page out of the request, asks the store for that page of records and
+// builds the block the theme draws.
+func (rs Resource[T]) ListBlock(r *http.Request, store gojiffy.Lister[T]) (Block, error) {
+	return MapList(rs, r, store, func(item T) T { return item })
+}
+
+// MapList is ListBlock where the page record is wider than the model — a
+// password, a computed field: the store hands out models, f makes records of
+// them.
+//
+//	view.MapList(rs, r, db.Users(), func(u models.User) UserForm {
+//		return UserForm{User: u}
+//	})
+func MapList[M, T any](rs Resource[T], r *http.Request, store gojiffy.Lister[M], f func(M) T) (Block, error) {
+	s, o, p := rs.ParseSearch(r), rs.ParseOrder(r), rs.Paging(r)
+
+	models, total, err := store.List(r.Context(), s, o, p)
+	if err != nil {
+		return Block{}, err
+	}
+	items := make([]T, len(models))
+	for i, m := range models {
+		items[i] = f(m)
+	}
+	return Block{Name: "list", Title: rs.Title, Data: rs.List(items, total, p, s, o)}, nil
 }

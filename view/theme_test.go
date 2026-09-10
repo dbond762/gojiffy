@@ -12,13 +12,13 @@ import (
 
 // A layer replaces exactly one file and the rest comes from the theme.
 // Otherwise the look would be all or nothing: one small change would mean
-// copying all ten templates and then following every change made to them in
-// the library.
+// copying every template and then following every change made to them in the
+// library.
 func TestOverrideReplacesOneFile(t *testing.T) {
 	t.Cleanup(func() { SetTheme(tailadmin.FS) })
 
 	err := Override(fstest.MapFS{
-		"templates/list.html": &fstest.MapFile{
+		"templates/page.html": &fstest.MapFile{
 			Data: []byte(`{{define "content"}}<p>markup of my own</p>{{end}}`),
 		},
 	})
@@ -27,14 +27,14 @@ func TestOverrideReplacesOneFile(t *testing.T) {
 	}
 
 	w := httptest.NewRecorder()
-	Render(w, http.StatusOK, "list.html", Page{Title: "x"})
+	Render(w, http.StatusOK, "page.html", Page{Title: "x"})
 	body := w.Body.String()
 
 	if !strings.Contains(body, "markup of my own") {
 		t.Error("the page did not take the overridden template")
 	}
 	if !strings.Contains(body, "<!doctype html>") {
-		t.Error("the layer wiped the theme layout instead of replacing list.html alone")
+		t.Error("the layer wiped the theme layout instead of replacing page.html alone")
 	}
 	// the partials of the theme reach the set through a glob over the directory:
 	// had overlay handed back the topmost directory instead of merging layers,
@@ -61,12 +61,13 @@ func TestOverrideKeepsSiblingPartials(t *testing.T) {
 	}
 
 	w := httptest.NewRecorder()
-	Render(w, http.StatusOK, "list.html", Page{Title: "x", Data: ListView{
-		Table: Table{
+	Render(w, http.StatusOK, "page.html", Page{Title: "x", Blocks: []Block{{
+		Name: "list",
+		Data: ListView{Table: Table{
 			Columns: []Column{{Title: "Name"}},
 			Rows:    [][]Cell{{{Text: "a cell from the theme"}}},
-		},
-	}})
+		}},
+	}}})
 	body := w.Body.String()
 
 	if !strings.Contains(body, "a footer of my own") {
@@ -85,7 +86,7 @@ func TestSetThemeIncomplete(t *testing.T) {
 	}
 
 	w := httptest.NewRecorder()
-	Render(w, http.StatusOK, "list.html", Page{Title: "x", Data: ListView{}})
+	Render(w, http.StatusOK, "page.html", Page{Title: "x"})
 	if w.Code != http.StatusOK {
 		t.Fatalf("the page broke after a theme that did not parse: %d", w.Code)
 	}
@@ -105,5 +106,25 @@ func TestStaticServesTheme(t *testing.T) {
 	}
 	if w.Body.Len() == 0 {
 		t.Error("empty css")
+	}
+}
+
+// A notice is a frame from the theme around content of the application's own:
+// the kind picks the colour, HTML goes in as markup and not as text. Only the
+// frame is the theme's — a field, a button and the script beside them are
+// written by the application.
+func TestNoticeFramesAppMarkup(t *testing.T) {
+	w := httptest.NewRecorder()
+	Render(w, http.StatusOK, "page.html", Page{Title: "x", Blocks: []Block{{
+		Name: "notice",
+		Data: &Notice{Kind: Warning, Title: "mind you", HTML: `<button id="mine">copy</button>`},
+	}}})
+	body := w.Body.String()
+
+	if !strings.Contains(body, "bg-warning-50") {
+		t.Error("the notice did not take the colour of its kind")
+	}
+	if !strings.Contains(body, `<button id="mine">copy</button>`) {
+		t.Error("the markup of the application did not reach the page as markup")
 	}
 }

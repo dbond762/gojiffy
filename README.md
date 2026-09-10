@@ -29,9 +29,8 @@ type Article struct {
 	Title string
 }
 
-var Articles = view.Resource[Article, Article]{
+var Articles = view.Resource[Article]{
 	Path: "/articles", Title: "Статьи", One: "Статья",
-	Wrap: func(a Article) Article { return a },
 	Href: func(a Article) string { return "/articles/" + strconv.Itoa(a.ID) },
 	Fields: []view.Field[Article]{{
 		Name:     "title",
@@ -61,10 +60,87 @@ var Articles = view.Resource[Article, Article]{
 принято из запроса. Права — это `Perms`, набор строк; откуда они берутся,
 решает приложение.
 
+Тип у ресурса один — та запись, которую видит страница, обычно сама модель.
+Если форме нужно больше, чем есть в модели (пароль, вычисленное поле), запись
+делается шире, а хранилище доводится до неё на входе в список:
+
+```go
+type UserForm struct {
+	models.User
+	Password string
+}
+
+view.MapList(rs, r, db.Users(), func(u models.User) UserForm {
+	return UserForm{User: u}
+})
+```
+
+## Страница
+
+Страница — это набор блоков: уведомление, список, форма. Блок знает, каким
+партиалом его рисовать, и несёт для него данные; собирает страницу
+`view.Handler`.
+
+```go
+// то, что знает только приложение: кто вошёл, его меню, csrf
+func (a *App) Frame(r *http.Request) (view.Page, error)
+
+// список целиком: фильтры, сортировка и страница из запроса, записи из
+// хранилища, готовый блок на выход
+func (a *App) Clients(_ http.ResponseWriter, r *http.Request) (view.Block, error) {
+	u := auth.UserFrom(r.Context())
+	return resources.ClientsFor(u.Perms).ListBlock(r, a.db.Clients(u.ID))
+}
+
+mux.HandleFunc("GET /clients", view.Handler(a.Frame, a.Secret, a.Clients))
+```
+
+`Component` — это `func(http.ResponseWriter, *http.Request) (Block, error)`.
+`ResponseWriter` здесь потому, что блок бывает с побочным эффектом:
+одноразовое уведомление гасит куку, из которой само и взялось. Компоненты
+рисуются в порядке передачи; блок без имени пропускается, поэтому
+«показать нечего» — это обычный `view.Block{}`, а не особый случай. Ошибка
+любого из них — 500 и ни строчки страницы: она собирается в буфер.
+
+Готовые блоки: `Resource.ListBlock` (список), `view.FormBlock` (форма с
+панелью и заголовком), `view.NoticeBlock` (уведомление; `nil` даёт пустой
+блок). Имена партиалов в коде приложения не появляются.
+
+Уведомление — это только рамка: цвет по `Kind` (`view.Success`,
+`view.Warning`, `view.Error`, `view.Info` — он же нулевой) и заголовок.
+Содержимое кладёт приложение: `Text` для простой строки, `HTML` для своей
+вёрстки — поля с кнопкой, ссылки. Скрипт к такой вёрстке тоже пишет
+приложение, тема о нём ничего не знает.
+
+```go
+view.NoticeBlock(&view.Notice{
+	Kind:  view.Success,
+	Title: "Токен создан",
+	Text:  "Скопируйте и передайте клиенту — больше он показан не будет.",
+	HTML:  secretField(secret), // своя вёрстка на классах темы
+})
+```
+
+Заголовок страницы берётся у первого блока, который его называет. Там, где
+нужен свой код ответа (422 у формы), свои крошки или 404 до всякой отрисовки,
+`Handler` не подходит — те же блоки рисует `RenderPage`:
+
+```go
+view.RenderPage(w, r, a.Frame, http.StatusUnprocessableEntity, title, crumbs,
+	view.FormBlock(form))
+```
+
+CSRF-токен формы у себя не спрашивают: он есть у страницы (`Page.CSRF`, его
+кладёт `Frame`), и `Handler` с `RenderPage` проставляют его каждой форме, что
+на ней рисуется. `Resource.Form` запроса не видит и знать токен не может, а
+забытый вручную токен — это отказ при отправке. Своим он остаётся только у
+формы входа: `Page` вокруг неё нет.
+
 ## Хранилище
 
-`store.go` объявляет контракт доступа к записям. Реализовать его специально не
-нужно: совпали имена и сигнатуры — значит подходит.
+`store.go` объявляет контракт доступа к записям — одна точка договорённости с
+тем, кто даёт данные. Реализовать его специально не нужно: совпали имена и
+сигнатуры — значит подходит.
 
 ```go
 type Lister[M any] interface {
@@ -168,26 +244,35 @@ view.Override(mine)             // свои файлы поверх станда
 | файл | точка входа | данные |
 |---|---|---|
 | `templates/layout.html` | `{{define "layout"}}` + `{{block "content" .}}` | `view.Page` |
-| `templates/list.html` | `{{define "content"}}` | `view.Page`, `.Data` — `view.ListView` |
-| `templates/form.html` | `{{define "content"}}` | `view.Page`, `.Data` — `view.FormView` |
+| `templates/page.html` | `{{define "content"}}` | `view.Page`, рисует `.Blocks` |
 | `templates/login.html` | `{{define "login.html"}}` | `view.FormView`, без `Page` |
-| `templates/partials/*.html` | `form`, `field`, `table`, `row-actions`, `list-footer`, `notice` | см. ниже |
+| `templates/partials/*.html` | `list`, `form-panel`, `notice`, `form`, `field`, `table`, `row-actions`, `list-footer` | см. ниже |
 | `static/app.css` | — | отдаётся по `/static/app.css` |
 
-`list.html` и `form.html` собираются в разные наборы — потому они и могут оба
-определять `content`. `login.html` получает partials, но не layout: это
-отдельный документ, и точка входа в нём названа именем файла.
+Страница одна на все разделы, потому что показывает она блоки, а не свой вид
+записи:
 
-Кому что приходит: `form` и `login.html` — `view.FormView`; `field` —
-`view.FieldView` (вызывается из `form`); `table` — `view.Table`; `row-actions` —
-`[]view.RowAction` (вызывается из `table`); `list-footer` — `view.ListFooter`;
-`notice` — `*view.Notice`.
+```html
+{{define "content"}}{{range .Blocks}}{{render .}}{{end}}{{end}}
+```
 
-В шаблонах доступны три функции: `{{app}}` — название приложения
+`login.html` получает partials, но не layout: это отдельный документ, и точка
+входа в нём названа именем файла.
+
+Кому что приходит: `list` — `view.ListView`; `form-panel` и `login.html` —
+`view.FormView`; `notice` — `*view.Notice`; `form` — `view.FormView`
+(вызывается из `form-panel`); `field` — `view.FieldView` (из `form`); `table` —
+`view.Table`; `row-actions` — `[]view.RowAction` (из `table`); `list-footer` —
+`view.ListFooter`.
+
+В шаблонах доступны четыре функции: `{{app}}` — название приложения
 (`view.SetAppName`), `{{t "Save"}}` — строка либы на выбранном языке
-(`view.SetLanguage`), с аргументами как у `fmt.Sprintf`, и `{{lang}}` — код
+(`view.SetLanguage`), с аргументами как у `fmt.Sprintf`, `{{lang}}` — код
 этого языка для `<html lang="…">` (неизвестный язык откатывается на `en`,
-и `{{lang}}` вернёт именно то, на чём в итоге печатается).
+и `{{lang}}` вернёт именно то, на чём в итоге печатается), и `{{render}}` —
+нарисовать блок партиалом с его именем. Последняя и делает набор блоков
+открытым: свой вид блока работает, как только в теме появился партиал с таким
+именем, — в Go для этого править нечего.
 
 Три сцепки, которые нельзя потерять при замене `layout.html`:
 `<form id="post-action">` с `_csrf` — на неё через `form`/`formaction` вешаются

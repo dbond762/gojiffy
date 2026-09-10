@@ -91,21 +91,6 @@ addEventListener("click", e => {
 	if (link.contains(sel.anchorNode) && link.contains(sel.focusNode)) e.preventDefault();
 });
 
-// The copy button beside a field: select the value (so that Ctrl+C works too when
-// the clipboard api is unavailable — it needs https or localhost) and put it on the
-// clipboard.
-addEventListener("click", async e => {
-	const btn = e.target.closest("[data-copy]");
-	if (!btn) return;
-
-	const input = document.getElementById(btn.dataset.copy);
-	input.select();
-	try {
-		await navigator.clipboard.writeText(input.value);
-		btn.textContent = "{{t "Copied"}}";
-	} catch {}
-});
-
 // A form with data-confirm asks first. The native <dialog> gives modality, the
 // backdrop, Esc and the focus return for free — Esc simply closes and submits
 // nothing. form.submit() raises no submit event, so it will not ask a second time.

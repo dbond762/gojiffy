@@ -15,5 +15,17 @@ type Page struct {
 	CSRF     string     // for the forms in the layout (signing out)
 	Crumbs   []Link     // the trail in the header; the last crumb is this page, unlinked
 	Menu     []MenuItem // the sections this user may see
-	Data     any
+	Blocks   []Block    // what the page is made of, drawn in this order
+}
+
+// Block — one piece of a page: the partial that draws it and the data for that
+// partial. An empty Name is a block that did not happen — a notice with nothing
+// to say — and Handler skips it.
+//
+// Names of partials do not belong in application code: take a block from
+// Resource.ListBlock, FormBlock or NoticeBlock.
+type Block struct {
+	Name  string
+	Title string // the page title, if this block is what sets it
+	Data  any
 }

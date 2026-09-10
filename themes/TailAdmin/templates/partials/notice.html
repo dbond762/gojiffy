@@ -1,17 +1,17 @@
-{{/* A highlighted block above the panel: a one-time secret and the like. */}}
+{{/* The frame of a notice above the panel: the colour by kind, the heading,
+     and inside it whatever the application put there — a sentence in Text, its
+     own markup in HTML. The classes are spelled out and not built out of the
+     kind: the css keeps only what the scanner found written in a template. */}}
 {{define "notice"}}
 {{- with .}}
-<div class="mb-6 rounded-xl border border-success-500 bg-success-50 p-5">
-	<h4 class="text-theme-xl font-semibold text-success-700">{{.Title}}</h4>
-	{{with .Code}}
-	<div class="mt-3 flex">
-		{{/* not field-input: it is grey for readonly fields, and a secret is meant to be read and copied */}}
-		<input id="notice-code" type="text" value="{{.}}" readonly
-			class="text-theme-sm shadow-theme-xs h-11 min-w-0 flex-1 rounded-lg rounded-r-none border border-success-500 bg-white px-4 py-2.5 font-mono text-gray-800 focus:outline-hidden">
-		<button type="button" class="btn rounded-l-none border-success-500" data-copy="notice-code">{{t "Copy"}}</button>
-	</div>
-	{{end}}
-	{{with .Text}}<p class="mt-3 text-theme-sm text-success-700">{{.}}</p>{{end}}
+{{- $frame := "border-blue-light-500 bg-blue-light-50 text-blue-light-700"}}
+{{- if eq .Kind "success"}}{{$frame = "border-success-500 bg-success-50 text-success-700"}}{{end}}
+{{- if eq .Kind "warning"}}{{$frame = "border-warning-500 bg-warning-50 text-warning-700"}}{{end}}
+{{- if eq .Kind "error"}}{{$frame = "border-error-500 bg-error-50 text-error-700"}}{{end}}
+<div class="mb-6 rounded-xl border p-5 {{$frame}}">
+	{{with .Title}}<h4 class="text-theme-xl font-semibold">{{.}}</h4>{{end}}
+	{{with .Text}}<p class="text-theme-sm mt-3">{{.}}</p>{{end}}
+	{{with .HTML}}<div class="mt-3">{{.}}</div>{{end}}
 </div>
 {{end -}}
 {{end}}

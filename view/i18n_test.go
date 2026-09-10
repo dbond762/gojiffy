@@ -52,13 +52,12 @@ func TestUnknownKeyReturnsID(t *testing.T) {
 // arrive finished. The text below is deliberately not English: it stands for an
 // application writing in its own language, and it has to come out untouched.
 func TestResourceLabelsPassThrough(t *testing.T) {
-	rs := Resource[string, string]{
+	rs := Resource[string]{
 		Title:    "Довільний заголовок",
 		One:      "Запис",
 		NewTitle: "Новий запис",
 		Empty:    "Порожньо",
 		Href:     func(string) string { return "/x" },
-		Wrap:     func(s string) string { return s },
 		Fields: []Field[string]{{
 			Name: "v", Title: "Значення", Label: "Значення", Help: "Підказка",
 			Text: func(s string) string { return s },
@@ -74,7 +73,7 @@ func TestResourceLabelsPassThrough(t *testing.T) {
 		t.Errorf("the action caption changed: %q", got)
 	}
 
-	fv := rs.Form("a", false, nil, nil, "")
+	fv := rs.Form("a", false, nil, nil)
 	if fv.Title != rs.One || fv.Fields[0].Label != "Значення" || fv.Fields[0].Help != "Підказка" {
 		t.Errorf("form labels changed: %+v", fv)
 	}
@@ -90,7 +89,7 @@ func TestLangAttribute(t *testing.T) {
 		SetLanguage(lang)
 
 		w := httptest.NewRecorder()
-		Render(w, http.StatusOK, "list.html", Page{Title: "x", Data: ListView{}})
+		Render(w, http.StatusOK, "page.html", Page{Title: "x"})
 		if got := `<html lang="` + want + `">`; !strings.Contains(w.Body.String(), got) {
 			t.Errorf("SetLanguage(%q): no %s on the page", lang, got)
 		}

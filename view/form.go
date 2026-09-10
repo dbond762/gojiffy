@@ -26,15 +26,12 @@ type Button struct {
 	Confirm              string // the confirmation text; empty asks nothing
 }
 
-// Notice — a highlighted block above the form. Code is shown in a monospace
-// font: it is the part meant to be copied.
-type Notice struct{ Title, Text, Code string }
-
 type FormView struct {
 	Action, Submit, CancelURL string
-	CSRF, Error               string
-	Title                     string
-	Notice                    *Notice
-	Fields                    []FieldView
-	Buttons                   []Button
+	// CSRF is filled in when the form goes onto a page. Sign-in fills it
+	// itself: that page has no Page around it.
+	CSRF, Error string
+	Title       string
+	Fields      []FieldView
+	Buttons     []Button
 }

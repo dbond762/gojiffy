@@ -1,9 +1,11 @@
 package view
 
 import (
+	"bytes"
 	"fmt"
 	"html/template"
 	"io/fs"
+	"maps"
 	"net/http"
 	"slices"
 	"strings"
@@ -67,11 +69,32 @@ func apply(l []fs.FS) error {
 
 	built := make(map[string]*template.Template, len(pages)+1)
 	for _, name := range pages {
-		tpl, err := template.New(name).Funcs(funcs).ParseFS(fsys,
+		// render draws a block by the name of its partial. It closes over a
+		// variable filled in below rather than being added afterwards, because
+		// Funcs has to be called before parsing. The output is html/template's
+		// own, already escaped, so HTML is the right type to hand back.
+		var set *template.Template
+		fns := maps.Clone(funcs)
+		fns["render"] = func(b Block) (template.HTML, error) {
+			// A block with no name is one that did not happen: a notice with
+			// nothing to say. Skipped here rather than in Handler, because a
+			// page is also built by hand and the rule should be in one place.
+			if b.Name == "" {
+				return "", nil
+			}
+			var buf bytes.Buffer
+			if err := set.ExecuteTemplate(&buf, b.Name, b.Data); err != nil {
+				return "", err
+			}
+			return template.HTML(buf.String()), nil
+		}
+
+		tpl, err := template.New(name).Funcs(fns).ParseFS(fsys,
 			"templates/layout.html", "templates/partials/*.html", "templates/"+name)
 		if err != nil {
 			return fmt.Errorf("template %s: %w", name, err)
 		}
+		set = tpl
 		built[name] = tpl
 	}
 	// The sign-in page is parsed without the layout: it is a document of its own

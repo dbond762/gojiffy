@@ -2,6 +2,8 @@ package gojiffy
 
 import "context"
 
+// Lister — one page of records, filtered and sorted the way the request asked,
+// and the total to page by.
 type Lister[M any] interface {
 	List(ctx context.Context, s Search, o Order, p Paging) ([]M, int, error)
 }
