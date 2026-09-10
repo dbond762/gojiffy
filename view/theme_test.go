@@ -39,7 +39,7 @@ func TestOverrideReplacesOneFile(t *testing.T) {
 	// the partials of the theme reach the set through a glob over the directory:
 	// had overlay handed back the topmost directory instead of merging layers,
 	// they would not be here.
-	if !strings.Contains(body, "app.css") {
+	if !strings.Contains(body, "/static/app.css") {
 		t.Error("the layout and partials of the theme did not reach the set")
 	}
 }
@@ -95,46 +95,17 @@ func TestSetThemeIncomplete(t *testing.T) {
 	}
 }
 
-// The address of the static files belongs to the application: it says where it
-// mounted them, and the templates link them from there. No address of the
-// library's own appears anywhere — that is the point of the argument.
-func TestStaticServesThemeWhereMounted(t *testing.T) {
-	t.Cleanup(func() { Static("/static/") })
-
-	h := Static("/theme/")
-
+// Static files are served by the library and not by the application: the
+// /static/app.css address is baked into the templates.
+func TestStaticServesTheme(t *testing.T) {
 	w := httptest.NewRecorder()
-	h.ServeHTTP(w, httptest.NewRequest("GET", "/theme/app.css", nil))
+	Static().ServeHTTP(w, httptest.NewRequest("GET", "/static/app.css", nil))
+
 	if w.Code != http.StatusOK {
 		t.Fatalf("code %d", w.Code)
 	}
 	if w.Body.Len() == 0 {
 		t.Error("empty css")
-	}
-
-	page := httptest.NewRecorder()
-	Render(page, http.StatusOK, "page.html", Page{Title: "x"})
-	if !strings.Contains(page.Body.String(), `href="/theme/app.css"`) {
-		t.Error("the page did not link the css where it was mounted")
-	}
-}
-
-// A stylesheet of the application goes onto the page after the theme's own:
-// markup an application brings with it has to be styled from somewhere, and
-// the theme's css is built without ever seeing it.
-func TestPageLinksApplicationStyles(t *testing.T) {
-	t.Cleanup(func() { SetStyles() })
-	SetStyles("/assets/dashboard.css")
-
-	w := httptest.NewRecorder()
-	Render(w, http.StatusOK, "page.html", Page{Title: "x"})
-	body := w.Body.String()
-
-	if !strings.Contains(body, `href="/assets/dashboard.css"`) {
-		t.Fatal("the stylesheet of the application is not on the page")
-	}
-	if strings.Index(body, "/assets/dashboard.css") < strings.Index(body, "app.css") {
-		t.Error("it went in before the theme, so the theme overrides it")
 	}
 }
 
@@ -155,5 +126,51 @@ func TestNoticeFramesAppMarkup(t *testing.T) {
 	}
 	if !strings.Contains(body, `<button id="mine">copy</button>`) {
 		t.Error("the markup of the application did not reach the page as markup")
+	}
+}
+
+// A stylesheet and a script of the application go onto the page each where it
+// belongs: the css after the theme's, the script after the markup it drives.
+// Markup an application brings with it has to be styled and driven from
+// somewhere, and the theme is built without ever seeing it.
+func TestPageLinksApplicationFiles(t *testing.T) {
+	t.Cleanup(func() { styles, scripts = nil, nil })
+	SetStyle("/assets/dashboard.css")
+	SetScript("/assets/dashboard.js?v=3")
+
+	w := httptest.NewRecorder()
+	Render(w, http.StatusOK, "page.html", Page{Title: "x"})
+	body := w.Body.String()
+
+	if !strings.Contains(body, `<link rel="stylesheet" href="/assets/dashboard.css">`) {
+		t.Error("the stylesheet is not on the page")
+	}
+	if !strings.Contains(body, `<script src="/assets/dashboard.js?v=3"></script>`) {
+		t.Error("the script is not on the page")
+	}
+	if strings.Index(body, "/assets/dashboard.css") < strings.Index(body, "/static/app.css") {
+		t.Error("the stylesheet went in before the theme, so the theme overrides it")
+	}
+	if strings.Index(body, "/assets/dashboard.js") < strings.Index(body, "</main>") {
+		t.Error("the script went in before the markup it works on")
+	}
+}
+
+// Each call adds one, so an application collects its files where it happens to
+// have them rather than in one list it has to keep whole.
+func TestFilesAddUp(t *testing.T) {
+	t.Cleanup(func() { styles, scripts = nil, nil })
+	SetStyle("/assets/one.css")
+	SetStyle("/assets/two.css")
+
+	w := httptest.NewRecorder()
+	Render(w, http.StatusOK, "page.html", Page{Title: "x"})
+	body := w.Body.String()
+
+	if !strings.Contains(body, "one.css") || !strings.Contains(body, "two.css") {
+		t.Fatal("the second call replaced the first instead of adding to it")
+	}
+	if strings.Index(body, "one.css") > strings.Index(body, "two.css") {
+		t.Error("they went onto the page in the wrong order")
 	}
 }

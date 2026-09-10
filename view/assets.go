@@ -1,20 +1,20 @@
 package view
 
-import "slices"
+// styles and scripts — the files of the application itself, on every page:
+// stylesheets in the head after the theme's own, scripts at the end of the body
+// after the theme's. The theme knows about neither — its css is built by
+// scanning its own templates and never sees anyone else's classes, its script
+// drives its own widgets.
+var styles, scripts []string
 
-// staticPrefix — where the application mounted Static. Templates ask for the
-// theme's files through {{asset}} and never name an address themselves: which
-// routes a mux gives away is the application's business. A library that took
-// /static/ for itself would take it from everyone using it.
-var staticPrefix string
-
-// styles — stylesheets of the application, linked after the theme's own.
-// Markup an application brings with it — the HTML of a Notice, a partial of
-// its own — is styled from here: the theme's css is built by scanning the
-// theme's own templates and knows nothing of anyone else's classes.
-var styles []string
-
-// SetStyles sets those stylesheets. Call it at startup, as with SetAppName.
+// SetStyle adds a stylesheet of the application, linked after the theme's.
+// Call it at startup, once per file, in the order they should be linked:
 //
-//	view.SetStyles("/assets/dashboard.css")
-func SetStyles(hrefs ...string) { styles = slices.Clone(hrefs) }
+//	view.SetStyle("/assets/dashboard.css")
+func SetStyle(href string) { styles = append(styles, href) }
+
+// SetScript adds a script of the application. It goes at the end of the body,
+// so the markup it works on is already parsed by the time it runs.
+//
+//	view.SetScript("/assets/dashboard.js")
+func SetScript(src string) { scripts = append(scripts, src) }

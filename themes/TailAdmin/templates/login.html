@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{t "Sign in"}} — {{app}}</title>
-<link rel="stylesheet" href="{{asset "app.css"}}">
+<link rel="stylesheet" href="/static/app.css">
 {{range styles}}<link rel="stylesheet" href="{{.}}">
 {{end -}}
 </head>
@@ -17,6 +17,7 @@
 		{{template "form" .}}
 	</div>
 </div>
-
+{{range scripts}}<script src="{{.}}"></script>
+{{end}}
 </body>
 </html>{{end}}

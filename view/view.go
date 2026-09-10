@@ -31,10 +31,10 @@ var funcs = template.FuncMap{
 	"app":  func() string { return appName },
 	"lang": func() string { return lib.Language() },
 	"t":    t,
-	// asset gives the address of a file of the theme, wherever the application
-	// mounted Static; styles gives the stylesheets it added of its own.
-	"asset":  func(name string) string { return staticPrefix + name },
-	"styles": func() []string { return styles },
+	// styles and scripts — what the application added of its own, see SetStyle
+	// and SetScript.
+	"styles":  func() []string { return styles },
+	"scripts": func() []string { return scripts },
 }
 
 // Render builds the page in a buffer so that a template error cannot end up

@@ -38,31 +38,18 @@ func SetTheme(fsys fs.FS) error { return apply([]fs.FS{fsys}) }
 // It can be called more than once, each layer covering the ones before it.
 func Override(fsys fs.FS) error { return apply(slices.Concat(layers, []fs.FS{fsys})) }
 
-// Static serves the static/ of the theme at the address the application picked
-// for it, and tells the templates to link it from there:
+// Static serves the static/ of the theme. Mount it at /static/:
 //
-//	mux.Handle("GET /theme/", view.Static("/theme/"))
+//	mux.Handle("GET /static/", view.Static())
 //
-// The address is an argument and not a constant of the library on purpose: a
-// name as ordinary as /static/ belongs to whoever is building the application,
-// and a library that took it would be taking it from every one of them. Naming
-// the route after the library instead would only be rude in a different way.
-// One call rather than a mount plus a setter, so the two cannot drift apart.
-//
-// The layers are read on every request, so the order against SetTheme does not
-// matter.
-func Static(prefix string) http.Handler {
-	staticPrefix = strings.TrimSuffix(prefix, "/") + "/"
-
-	return http.StripPrefix(strings.TrimSuffix(prefix, "/"),
-		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			sub, err := fs.Sub(overlay(layers), "static")
-			if err != nil {
-				http.NotFound(w, r)
-				return
-			}
-			http.FileServerFS(sub).ServeHTTP(w, r)
-		}))
+// That address is baked into the templates (<link rel="stylesheet"
+// href="/static/app.css">), so both ends of the arrangement are held by the
+// library and changing the theme leaves routing alone. The layers are read on
+// every request, so the order against SetTheme does not matter.
+func Static() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.FileServerFS(overlay(layers)).ServeHTTP(w, r)
+	})
 }
 
 func init() {

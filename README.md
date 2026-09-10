@@ -210,25 +210,24 @@ Tailwind CSS. Собранный `themes/TailAdmin/static/app.css` лежит в
 tailwindcss -i themes/TailAdmin/styles/app.css -o themes/TailAdmin/static/app.css --minify
 ```
 
-Отдаёт его либа сама, но адрес выбирает приложение — и по нему же либа его
-подключает в своих шаблонах:
+Отдаёт его либа сама, приложению остаётся смонтировать:
 
 ```go
-mux.Handle("GET /theme/", view.Static("/theme/"))
+mux.Handle("GET /static/", view.Static())
 ```
 
-Адрес аргументом, а не константой в либе, потому что имя вроде `/static/`
-принадлежит тому, кто пишет приложение: заняв его, либа заняла бы его у всех
-сразу, а назвав маршрут своим именем — нагрубила бы иначе. Один вызов, а не
-монтирование плюс сеттер, чтобы эти двое не разъехались.
-
-Своя вёрстка — своими стилями: их файл отдаёт приложение само, а либа лишь
-подключает его после темы.
+Своя вёрстка — своими стилями и своим скриптом. Файлы отдаёт приложение само,
+а либа их подключает: css в `<head>` после темы, js в конце `<body>` после её
+собственного — там разметка, с которой он работает, уже разобрана.
 
 ```go
 mux.Handle("GET /assets/", http.StripPrefix("/assets/", http.FileServerFS(mine)))
-view.SetStyles("/assets/app.css")
+view.SetStyle("/assets/app.css")
+view.SetScript("/assets/app.js")
 ```
+
+Каждый вызов добавляет один файл, в порядке вызовов: список целиком держать не
+нужно, файлы объявляются там, где о них известно.
 
 ## Тема
 
@@ -261,7 +260,7 @@ view.Override(mine)             // свои файлы поверх станда
 | `templates/page.html` | `{{define "content"}}` | `view.Page`, рисует `.Blocks` |
 | `templates/login.html` | `{{define "login.html"}}` | `view.FormView`, без `Page` |
 | `templates/partials/*.html` | `list`, `form-panel`, `notice`, `form`, `field`, `table`, `row-actions`, `list-footer` | см. ниже |
-| `static/app.css` | — | отдаётся там, куда смонтировали `view.Static` |
+| `static/app.css` | — | отдаётся по `/static/app.css` |
 
 Страница одна на все разделы, потому что показывает она блоки, а не свой вид
 записи:
@@ -304,7 +303,7 @@ view.Override(mine)             // свои файлы поверх станда
 (`@source "../templates"`). Класса, которого там не было, в готовом CSS нет —
 свой шаблон его не получит. Варианты: держаться классов темы (`btn`,
 `btn-primary`, `field-input`, `field-select`, `table`, `menu-item`…); либо
-написать свой css и подключить его через `view.SetStyles` — он идёт после
+написать свой css и подключить его через `view.SetStyle` — он идёт после
 темы, так что переменные темы (`--color-gray-800`, `--radius-lg`) в нём
 доступны, а свои правила перебивают её утилиты.
 
