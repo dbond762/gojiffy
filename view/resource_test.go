@@ -257,3 +257,42 @@ func TestFailedCheckSkipsParse(t *testing.T) {
 		t.Errorf("Login = %q: the typed value was lost", p.Login)
 	}
 }
+
+// The "New" button, and anything else above the list, is a declared item —
+// present because it was added, gone because permission was denied — never a
+// side effect of some caption happening to be set.
+func TestHeaderIsFilteredByPermission(t *testing.T) {
+	rs := Resource[string]{Path: "/x", Header: []HeaderLink{
+		{Title: "New", Href: "/new"},
+		{Title: "Import", Href: "/import", Permission: "import"},
+	}}
+
+	open := rs.List(nil, 0, gojiffy.Paging{Page: 1, PerPage: 20}, nil, gojiffy.Order{}).Header
+	if len(open) != 2 {
+		t.Fatalf("with no permissions applied: %d buttons, want 2: %+v", len(open), open)
+	}
+
+	limited := rs.For(gojiffy.Perms{}).List(nil, 0, gojiffy.Paging{Page: 1, PerPage: 20}, nil, gojiffy.Order{}).Header
+	if len(limited) != 1 || limited[0].Title != "New" {
+		t.Fatalf("without the permission: %+v, want just New", limited)
+	}
+
+	allowed := rs.For(gojiffy.Perms{"import": true}).List(nil, 0, gojiffy.Paging{Page: 1, PerPage: 20}, nil, gojiffy.Order{}).Header
+	if len(allowed) != 2 {
+		t.Fatalf("with the permission: %+v, want both", allowed)
+	}
+}
+
+// A resource may still get its Path filled in after it was declared — a
+// client's tokens are given their own address only once the client is
+// known — so Header's Href has to be resolved against Path as it stands when
+// the list is actually drawn, not when Header was written.
+func TestHeaderHrefFollowsPathSetLater(t *testing.T) {
+	rs := Resource[string]{Header: []HeaderLink{{Title: "New", Href: "/new"}}}
+	rs.Path = "/clients/7/tokens"
+
+	header := rs.List(nil, 0, gojiffy.Paging{Page: 1, PerPage: 20}, nil, gojiffy.Order{}).Header
+	if len(header) != 1 || header[0].Href != "/clients/7/tokens/new" {
+		t.Fatalf("href = %+v, want /clients/7/tokens/new", header)
+	}
+}

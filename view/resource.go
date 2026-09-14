@@ -113,6 +113,20 @@ func (f Field[T]) label() string {
 // Link — a button in the panel header.
 type Link struct{ Title, Href string }
 
+// HeaderLink — a button above the list, not tied to any one record: "New",
+// say, or something an application adds of its own. Filtered by Permission
+// exactly like a row Action — an unmet permission drops the button, not the
+// text under it.
+//
+// Href is resolved against the resource's own Path when the list is drawn,
+// not when the resource is declared: a resource may still get its Path
+// filled in afterward, the way a client's tokens are given their own address
+// only once the client is known.
+type HeaderLink struct {
+	Title, Href string // Href, e.g. "/new", goes after Path
+	Permission  string // "" means anyone who sees the list
+}
+
 // Resource — the description of an entity: some fields show up in the table,
 // others in the form, others in both. The machinery below is the same for every
 // entity.
@@ -124,13 +138,14 @@ type Resource[T any] struct {
 	Path         string         // /users — address of the list and action of the search form
 	Title        string         // Users — heading of the list
 	One          string         // User — heading of the edit form
-	NewTitle     string         // New user — heading of the create form
+	NewTitle     string         // New user — heading of the create form, when Form draws it creating
 	Empty        string         // the text of an empty list; empty is "Nothing found"
 	PerPage      int            // rows per page; 0 means gojiffy.PerPageDefault
 	DefaultOrder gojiffy.Order  // sorting when the request has none or names an unknown field
 	Href         func(T) string // address of a record: action of the edit form
 	Fields       []Field[T]
 	Actions      []Action[T]
+	Header       []HeaderLink // buttons above the list, in order — see HeaderLink
 }
 
 // For hands back a copy of the description without whatever the user has no
@@ -150,7 +165,13 @@ func (rs Resource[T]) For(perms gojiffy.Perms) Resource[T] {
 			actions = append(actions, a)
 		}
 	}
-	rs.Fields, rs.Actions = fields, actions
+	header := make([]HeaderLink, 0, len(rs.Header))
+	for _, h := range rs.Header {
+		if h.Permission == "" || perms.Can(h.Permission) {
+			header = append(header, h)
+		}
+	}
+	rs.Fields, rs.Actions, rs.Header = fields, actions, header
 	return rs
 }
 
@@ -283,13 +304,13 @@ func (rs Resource[T]) List(items []T, total int, p gojiffy.Paging, s gojiffy.Sea
 		tbl.Rows = append(tbl.Rows, cells)
 	}
 
-	var new_ *Link
-	if rs.NewTitle != "" {
-		new_ = &Link{Title: rs.NewTitle, Href: rs.Path + "/new"}
+	header := make([]Link, 0, len(rs.Header))
+	for _, h := range rs.Header {
+		header = append(header, Link{Title: h.Title, Href: rs.Path + h.Href})
 	}
 	return ListView{
 		Title:  rs.Title,
-		New:    new_,
+		Header: header,
 		Table:  tbl,
 		Footer: listFooter(rs.Path, s, o, p, total),
 	}
@@ -441,7 +462,7 @@ func withAll(opts []Option) []Option {
 // ListView — what goes into the list.html template.
 type ListView struct {
 	Title  string
-	New    *Link
+	Header []Link
 	Table  Table
 	Footer ListFooter
 }
