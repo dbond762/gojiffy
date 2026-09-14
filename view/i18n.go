@@ -26,6 +26,7 @@ var libStrings = []struct{ key, ru, uk string }{
 	{"Reset", "Сбросить", "Скинути"},
 	{"No records", "Записей нет", "Записів немає"},
 	{"Nothing found", "Ничего не найдено", "Нічого не знайдено"},
+	{"Fill in this field", "Заполните поле", "Заповніть поле"},
 	{"Previous", "Назад", "Назад"},
 	{"Next", "Вперёд", "Вперед"},
 	{"All", "Все", "Усі"},
@@ -46,6 +47,13 @@ var libStrings = []struct{ key, ru, uk string }{
 // showingKey — the counter in a list footer; the format is the same in every
 // language and only the plural forms differ, registered below under this key.
 const showingKey = "Showing %[1]d–%[2]d of %[3]d records"
+
+// minKey and maxKey — the length checks of a field: the number decides the
+// form of the word "character".
+const (
+	minKey = "At least %d characters"
+	maxKey = "At most %d characters"
+)
 
 func newCatalog() *gojiffy.Catalog {
 	c := gojiffy.NewCatalog()
@@ -70,6 +78,29 @@ func newCatalog() *gojiffy.Catalog {
 		"few", "Показано %[1]d–%[2]d з %[3]d записів",
 		"many", "Показано %[1]d–%[2]d з %[3]d записів",
 		"other", "Показано %[1]d–%[2]d з %[3]d запису"))
+
+	c.Set("en", minKey, plural.Selectf(1, "%d", "one", "At least %d character", "other", minKey))
+	c.Set("en", maxKey, plural.Selectf(1, "%d", "one", "At most %d character", "other", maxKey))
+	c.Set("ru", minKey, plural.Selectf(1, "%d",
+		"one", "Не менее %d символа",
+		"few", "Не менее %d символов",
+		"many", "Не менее %d символов",
+		"other", "Не менее %d символа"))
+	c.Set("ru", maxKey, plural.Selectf(1, "%d",
+		"one", "Не более %d символа",
+		"few", "Не более %d символов",
+		"many", "Не более %d символов",
+		"other", "Не более %d символа"))
+	c.Set("uk", minKey, plural.Selectf(1, "%d",
+		"one", "Щонайменше %d символ",
+		"few", "Щонайменше %d символи",
+		"many", "Щонайменше %d символів",
+		"other", "Щонайменше %d символу"))
+	c.Set("uk", maxKey, plural.Selectf(1, "%d",
+		"one", "Щонайбільше %d символ",
+		"few", "Щонайбільше %d символи",
+		"many", "Щонайбільше %d символів",
+		"other", "Щонайбільше %d символу"))
 
 	return c
 }

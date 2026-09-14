@@ -2,19 +2,18 @@ package view
 
 import (
 	"net/http"
+	"reflect"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/dbond762/gojiffy"
 )
 
-// Req — when a field is required.
-type Req int
-
-const (
-	No       Req = iota // never
-	Yes                 // always
-	OnCreate            // only when creating (a password may be changed or left alone)
-)
+// FieldErrors — the words for a check that failed. An empty one takes the
+// library's own message in the language of the page.
+type FieldErrors struct {
+	Required, Min, Max string
+}
 
 // Field — a field of an entity in full. By default it is in both places at
 // once, a column of the list and a field of the form, because most of them
@@ -41,16 +40,33 @@ type Field[T any] struct {
 	Bool          func(T) bool   // when set, the cell draws a tick or a cross instead of Text
 
 	// form
-	Label        string // when the form needs other words than the list; empty takes Caption
-	Type         string
-	Help         string // hint under the field
-	HelpEdit     string // hint when editing, if it differs
-	Required     Req
-	Options      string                       // key of an option set, making it a <select>
-	Value        func(T) string               // the field value; nil takes Text instead
-	Parse        func(*T, string, bool) error // parsing and validation; the bool means creating
-	Readonly     func(T) bool                 // true only shows the field; what to accept is still up to Parse
-	Autocomplete string
+	Label    string // when the form needs other words than the list; empty takes Caption
+	Type     string
+	Help     string // hint under the field
+	HelpEdit string // hint when editing, if it differs
+	Options  string // key of an option set, making it a <select>
+	Value    func(T) string
+	Readonly func(T) bool // true only shows the field; what to accept is still up to Parse
+	// Autofill — the autocomplete attribute of the input: what a browser or a
+	// password manager may fill in there ("username", "new-password", "off").
+	Autofill string
+
+	// Checks made before Parse, on the value with its spaces trimmed. Length
+	// is in characters, not bytes, and is checked only on a value that is
+	// there: whether it may be empty at all is Required's question.
+	NoTrim   bool // keep the spaces: a password is what it is, spaces and all
+	Required bool
+	Min, Max int // 0 means no limit
+	Errors   FieldErrors
+
+	// The value goes into the string field of the record that Name refers to
+	// (status into Status, system_type into SystemType) before Parse is called,
+	// so a field that only stores what came in needs no Parse at all. Parse is
+	// for the rest: a date, a number, a rule of its own — and it may overwrite
+	// what was stored. NoSet leaves the record alone for Parse to decide, for a
+	// rule that has to look at what the record held before.
+	NoSet bool
+	Parse func(*T, string, bool) error // the bool means creating
 
 	Permission string // the field is visible only with this permission, in list and form alike
 }
@@ -281,19 +297,82 @@ func (rs Resource[T]) List(items []T, total int, p gojiffy.Paging, s gojiffy.Sea
 
 // ——— form ———
 
-// Parse reads the request field by field. creating changes how strict that is:
-// when creating, a required field cannot be empty.
+// Parse reads the request field by field: trims the value, stores it in the
+// record, makes the declared checks and only then calls the field's own Parse.
+// The value is stored even when a check fails — the form comes back with what
+// was typed, not with what was there before. A field that fails a check does
+// not get to Parse: one error per field is enough, and the first is the one to
+// fix.
 func (rs Resource[T]) Parse(r *http.Request, item T, creating bool) (T, map[string]string) {
 	errs := map[string]string{}
 	for _, f := range rs.Fields {
-		if !f.inForm() || f.Parse == nil {
+		if !f.inForm() {
 			continue
 		}
-		if err := f.Parse(&item, r.PostFormValue(f.Name), creating); err != nil {
-			errs[f.Name] = err.Error()
+		v := r.PostFormValue(f.Name)
+		if !f.NoTrim {
+			v = strings.TrimSpace(v)
+		}
+		// a readonly field is not taken from the request: the input only shows it
+		if !f.NoSet && (f.Readonly == nil || !f.Readonly(item)) {
+			set(&item, f.Name, v)
+		}
+		if msg := f.check(v); msg != "" {
+			errs[f.Name] = msg
+			continue
+		}
+		if f.Parse != nil {
+			if err := f.Parse(&item, v, creating); err != nil {
+				errs[f.Name] = err.Error()
+			}
 		}
 	}
 	return item, errs
+}
+
+// check makes the declared checks and gives back what went wrong, or "".
+func (f Field[T]) check(v string) string {
+	n := utf8.RuneCountInString(v)
+	switch {
+	case v == "" && f.Required:
+		return or(f.Errors.Required, t("Fill in this field"))
+	case v != "" && f.Min > 0 && n < f.Min:
+		return or(f.Errors.Min, t(minKey, f.Min))
+	case f.Max > 0 && n > f.Max:
+		return or(f.Errors.Max, t(maxKey, f.Max))
+	}
+	return ""
+}
+
+func or(s, def string) string {
+	if s != "" {
+		return s
+	}
+	return def
+}
+
+// set puts v into the string field of the record that name refers to: the
+// underscores dropped and the case ignored, so role_id finds RoleID as well as
+// system_type finds SystemType, embedded structs included. Anything that is
+// not a string — a date, a number, a flag — is left for Parse to convert, and
+// so is a record that has no such field.
+func set[T any](item *T, name, v string) {
+	rv := reflect.ValueOf(item).Elem()
+	if rv.Kind() != reflect.Struct {
+		return
+	}
+	want := strings.ReplaceAll(name, "_", "")
+	sf, ok := rv.Type().FieldByNameFunc(func(n string) bool { return strings.EqualFold(n, want) })
+	if !ok {
+		return
+	}
+	// FieldByIndexErr, not FieldByIndex: a nil embedded pointer on the way to
+	// the field would otherwise panic
+	fv, err := rv.FieldByIndexErr(sf.Index)
+	if err != nil || !fv.CanSet() || fv.Kind() != reflect.String {
+		return
+	}
+	fv.SetString(v)
 }
 
 // Form builds the form for the template: values out of the record, errors under
@@ -312,13 +391,13 @@ func (rs Resource[T]) Form(item T, creating bool, opts Options, errs map[string]
 			continue
 		}
 		fv := FieldView{
-			Name:         f.Name,
-			Label:        f.label(),
-			Type:         f.Type,
-			Help:         f.Help,
-			Autocomplete: f.Autocomplete,
-			Required:     f.Required == Yes || (creating && f.Required == OnCreate),
-			Error:        errs[f.Name],
+			Name:     f.Name,
+			Label:    f.label(),
+			Type:     f.Type,
+			Help:     f.Help,
+			Autofill: f.Autofill,
+			Required: f.Required,
+			Error:    errs[f.Name],
 		}
 		if !creating && f.HelpEdit != "" {
 			fv.Help = f.HelpEdit

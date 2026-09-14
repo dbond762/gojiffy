@@ -1,6 +1,11 @@
 package view
 
 import (
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/dbond762/gojiffy"
@@ -86,5 +91,169 @@ func TestEmptyListHasWordsOfItsOwn(t *testing.T) {
 	rs.Empty = "no clients of that name"
 	if got := rs.List(nil, 0, gojiffy.Paging{Page: 1, PerPage: 20}, nil, gojiffy.Order{}).Table.Empty; got != rs.Empty {
 		t.Errorf("the default won over what the resource said: %q", got)
+	}
+}
+
+type account struct{ Login string }
+
+// probe — a record for the parsing tests: an embedded struct, names that come
+// with underscores, and a field that is not a string.
+type probe struct {
+	account
+	SystemType string
+	Status     string
+	Count      int
+}
+
+func probeRes(fields ...Field[probe]) Resource[probe] {
+	return Resource[probe]{Path: "/x", Href: func(probe) string { return "/x/1" }, Fields: fields}
+}
+
+func post(values url.Values) *http.Request {
+	r := httptest.NewRequest("POST", "/x", strings.NewReader(values.Encode()))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	return r
+}
+
+// What only stores what came in needs no Parse: the value lands in the field
+// the name refers to, underscores and case aside, embedded structs included —
+// trimmed, unless the field says otherwise.
+func TestParseStoresWithoutParse(t *testing.T) {
+	rs := probeRes(
+		Field[probe]{Name: "login"},
+		Field[probe]{Name: "system_type"},
+		Field[probe]{Name: "status", NoTrim: true},
+		Field[probe]{Name: "count"},
+	)
+	values := url.Values{"login": {"  olya "}, "system_type": {"Windows"}, "status": {" on "}, "count": {"7"}}
+	p, errs := rs.Parse(post(values), probe{Count: 3}, true)
+	if len(errs) > 0 {
+		t.Fatalf("errors: %v", errs)
+	}
+	if p.Login != "olya" {
+		t.Errorf("Login = %q: not trimmed, or not stored through the embedded struct", p.Login)
+	}
+	if p.SystemType != "Windows" {
+		t.Errorf("SystemType = %q: system_type did not find it", p.SystemType)
+	}
+	if p.Status != " on " {
+		t.Errorf("Status = %q: NoTrim trimmed it anyway", p.Status)
+	}
+	if p.Count != 3 {
+		t.Errorf("Count = %d: a number is Parse's to convert", p.Count)
+	}
+}
+
+// Parse comes after, so it sees the value already stored and may overwrite it.
+func TestParseOverridesWhatWasStored(t *testing.T) {
+	rs := probeRes(Field[probe]{Name: "status", Parse: func(p *probe, v string, _ bool) error {
+		if p.Status != v {
+			return errors.New("Parse ran before the value was stored")
+		}
+		p.Status = strings.ToUpper(v)
+		return nil
+	}})
+	p, errs := rs.Parse(post(url.Values{"status": {"on"}}), probe{}, true)
+	if len(errs) > 0 {
+		t.Fatal(errs)
+	}
+	if p.Status != "ON" {
+		t.Errorf("Status = %q: Parse did not get the last word", p.Status)
+	}
+}
+
+// A rule about what may follow what needs the old value: NoSet keeps it there
+// for Parse.
+func TestNoSetLeavesTheRecordForParse(t *testing.T) {
+	var seen string
+	rs := probeRes(Field[probe]{Name: "status", NoSet: true, Parse: func(p *probe, v string, _ bool) error {
+		seen = p.Status
+		return nil
+	}})
+	p, _ := rs.Parse(post(url.Values{"status": {"active"}}), probe{Status: "pending"}, false)
+	if seen != "pending" {
+		t.Errorf("Parse saw %q: the record was overwritten first", seen)
+	}
+	if p.Status != "pending" {
+		t.Errorf("Status = %q: stored despite NoSet", p.Status)
+	}
+}
+
+// A readonly input only shows the value: a forged request does not change it.
+func TestReadonlyIsNotTakenFromTheRequest(t *testing.T) {
+	rs := probeRes(Field[probe]{Name: "status", Readonly: func(p probe) bool { return p.Status == "locked" }})
+	p, _ := rs.Parse(post(url.Values{"status": {"open"}}), probe{Status: "locked"}, false)
+	if p.Status != "locked" {
+		t.Errorf("Status = %q: a readonly field was taken from the request", p.Status)
+	}
+}
+
+// The declared checks: empty against Required, length in characters rather
+// than bytes, and only on a value that is there.
+func TestFieldChecks(t *testing.T) {
+	rs := probeRes(Field[probe]{Name: "login", Required: true, Min: 3, Max: 5})
+	for _, c := range []struct {
+		in  string
+		bad bool
+	}{
+		{"", true},
+		{"   ", true},  // trimmed away to nothing
+		{"аб", true},   // two characters in four bytes: short all the same
+		{"абв", false}, // three characters in six bytes: bytes would call it long
+		{"абвгд", false},
+		{"абвгде", true},
+	} {
+		_, errs := rs.Parse(post(url.Values{"login": {c.in}}), probe{}, true)
+		if got := errs["login"] != ""; got != c.bad {
+			t.Errorf("%q: error %q, wanted one: %v", c.in, errs["login"], c.bad)
+		}
+	}
+
+	// Min is not Required: an optional field may stay empty
+	opt := probeRes(Field[probe]{Name: "login", Min: 3})
+	if _, errs := opt.Parse(post(url.Values{"login": {""}}), probe{}, true); errs["login"] != "" {
+		t.Errorf("an empty optional field failed Min: %q", errs["login"])
+	}
+}
+
+// Words of the application's own win; without them the library says it, with
+// the number in it.
+func TestFieldErrorsOverrideTheDefaults(t *testing.T) {
+	plain := probeRes(Field[probe]{Name: "login", Required: true, Min: 2, Max: 3})
+	own := probeRes(Field[probe]{Name: "login", Required: true, Min: 2, Max: 3,
+		Errors: FieldErrors{Required: "who are you", Min: "too short a name", Max: "too long a name"}})
+
+	for in, want := range map[string]string{"": "who are you", "a": "too short a name", "abcd": "too long a name"} {
+		_, def := plain.Parse(post(url.Values{"login": {in}}), probe{}, true)
+		_, got := own.Parse(post(url.Values{"login": {in}}), probe{}, true)
+		if def["login"] == "" || def["login"] == want {
+			t.Errorf("%q: no message of the library's own: %q", in, def["login"])
+		}
+		if got["login"] != want {
+			t.Errorf("%q: %q, want %q", in, got["login"], want)
+		}
+	}
+	if _, def := plain.Parse(post(url.Values{"login": {"abcd"}}), probe{}, true); !strings.Contains(def["login"], "3") {
+		t.Errorf("the limit is not in the message: %q", def["login"])
+	}
+}
+
+// A failed check stops at one error: Parse does not pile its own on top, and
+// the form still comes back with what was typed.
+func TestFailedCheckSkipsParse(t *testing.T) {
+	called := false
+	rs := probeRes(Field[probe]{Name: "login", Max: 2, Parse: func(*probe, string, bool) error {
+		called = true
+		return nil
+	}})
+	p, errs := rs.Parse(post(url.Values{"login": {"abc"}}), probe{}, true)
+	if called {
+		t.Error("Parse ran after a failed check")
+	}
+	if errs["login"] == "" {
+		t.Error("no error")
+	}
+	if p.Login != "abc" {
+		t.Errorf("Login = %q: the typed value was lost", p.Login)
 	}
 }

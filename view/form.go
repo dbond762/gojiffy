@@ -10,7 +10,7 @@ type Option struct {
 // A FieldView with Options set renders as a <select>, otherwise as an <input Type>.
 type FieldView struct {
 	Name, Label, Type, Value, Help, Error string
-	Autocomplete                          string // "new-password" stops a password manager filling it in
+	Autofill                              string // the autocomplete attribute: "new-password" stops a password manager filling it in
 	Options                               []Option
 	Required                              bool
 	// Readonly rather than disabled: the value still reaches the server and

@@ -202,8 +202,8 @@ func loginPage(token, login, errMsg string) view.FormView {
 		CSRF:   token,
 		Error:  errMsg,
 		Fields: []view.FieldView{
-			{Name: "login", Label: view.T("Login"), Type: "text", Value: login, Autocomplete: "username", Required: true},
-			{Name: "password", Label: view.T("Password"), Type: "password", Autocomplete: "current-password", Required: true},
+			{Name: "login", Label: view.T("Login"), Type: "text", Value: login, Autofill: "username", Required: true},
+			{Name: "password", Label: view.T("Password"), Type: "password", Autofill: "current-password", Required: true},
 		},
 	}
 }

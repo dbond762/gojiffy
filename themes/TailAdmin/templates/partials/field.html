@@ -8,7 +8,7 @@
 	{{else if eq .Type "textarea"}}
 	<textarea class="field-input h-auto{{if .Error}} border-error-500{{end}}" id="f-{{.Name}}" name="{{.Name}}" rows="4"{{if .Required}} required{{end}}>{{.Value}}</textarea>
 	{{else}}
-	<input class="field-input{{if .Error}} border-error-500{{end}}" id="f-{{.Name}}" name="{{.Name}}" type="{{.Type}}" value="{{.Value}}"{{with .Autocomplete}} autocomplete="{{.}}"{{end}}{{if .Required}} required{{end}}{{if .Readonly}} readonly{{end}}>
+	<input class="field-input{{if .Error}} border-error-500{{end}}" id="f-{{.Name}}" name="{{.Name}}" type="{{.Type}}" value="{{.Value}}"{{with .Autofill}} autocomplete="{{.}}"{{end}}{{if .Required}} required{{end}}{{if .Readonly}} readonly{{end}}>
 	{{end}}
 	{{if .Error}}<p class="mt-1.5 text-theme-xs text-error-500">{{.Error}}</p>
 	{{else if .Help}}<p class="mt-1.5 text-theme-xs text-gray-500">{{.Help}}</p>{{end}}
