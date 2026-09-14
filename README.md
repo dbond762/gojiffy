@@ -31,8 +31,15 @@ type Article struct {
 }
 
 var Articles = view.Resource[Article]{
-	Path: "/articles", Title: "Статьи", One: "Статья",
-	Href: func(a Article) string { return "/articles/" + strconv.Itoa(a.ID) },
+	Path:      "/articles",
+	Title:     "Статьи",
+	EditTitle: func(a Article) string {
+		if a.Title == "" {
+			return "Статья"
+		}
+		return "Статья: " + a.Title
+	},
+	Href:      func(a Article) string { return "/articles/" + strconv.Itoa(a.ID) },
 	Fields: []view.Field[Article]{{
 		Name:     "title",
 		Caption:  "Заголовок",

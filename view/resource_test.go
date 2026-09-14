@@ -13,7 +13,7 @@ import (
 
 func rec(fields ...Field[string]) Resource[string] {
 	return Resource[string]{
-		Path: "/x", One: "One", NewTitle: "New",
+		Path: "/x", NewTitle: "New", EditTitle: func(string) string { return "One" },
 		Href:   func(string) string { return "/x/1" },
 		Fields: fields,
 	}
@@ -294,5 +294,35 @@ func TestHeaderHrefFollowsPathSetLater(t *testing.T) {
 	header := rs.List(nil, 0, gojiffy.Paging{Page: 1, PerPage: 20}, nil, gojiffy.Order{}).Header
 	if len(header) != 1 || header[0].Href != "/clients/7/tokens/new" {
 		t.Fatalf("href = %+v, want /clients/7/tokens/new", header)
+	}
+}
+
+// The edit form's heading comes from EditTitle, the record's own name and
+// all — Resource carries no plain string that could go stale next to it.
+func TestFormUsesEditTitle(t *testing.T) {
+	rs := probeRes(Field[probe]{Name: "login"})
+	rs.EditTitle = func(p probe) string {
+		if p.Login == "" {
+			return "Account"
+		}
+		return "Account: " + p.Login
+	}
+
+	fv := rs.Form(probe{account: account{Login: "olya"}}, false, nil, nil)
+	if fv.Title != "Account: olya" {
+		t.Errorf("title = %q", fv.Title)
+	}
+}
+
+// Not every resource offers editing at all, so EditTitle left unset is a
+// normal case and not a way to invite a nil-pointer panic — Title is a plain
+// enough thing to show instead.
+func TestFormFallsBackToTitleWithoutEditTitle(t *testing.T) {
+	rs := probeRes(Field[probe]{Name: "login"})
+	rs.Title = "Accounts"
+
+	fv := rs.Form(probe{}, false, nil, nil)
+	if fv.Title != "Accounts" {
+		t.Errorf("title = %q, want the resource's own Title", fv.Title)
 	}
 }

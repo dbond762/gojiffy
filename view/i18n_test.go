@@ -53,11 +53,11 @@ func TestUnknownKeyReturnsID(t *testing.T) {
 // application writing in its own language, and it has to come out untouched.
 func TestResourceLabelsPassThrough(t *testing.T) {
 	rs := Resource[string]{
-		Title:    "Довільний заголовок",
-		One:      "Запис",
-		NewTitle: "Новий запис",
-		Empty:    "Порожньо",
-		Href:     func(string) string { return "/x" },
+		Title:     "Довільний заголовок",
+		EditTitle: func(string) string { return "Запис" },
+		NewTitle:  "Новий запис",
+		Empty:     "Порожньо",
+		Href:      func(string) string { return "/x" },
 		Fields: []Field[string]{{
 			Name: "v", Caption: "Значення", Help: "Підказка",
 			Text: func(s string) string { return s },
@@ -74,7 +74,7 @@ func TestResourceLabelsPassThrough(t *testing.T) {
 	}
 
 	fv := rs.Form("a", false, nil, nil)
-	if fv.Title != rs.One || fv.Fields[0].Label != "Значення" || fv.Fields[0].Help != "Підказка" {
+	if fv.Title != rs.EditTitle("a") || fv.Fields[0].Label != "Значення" || fv.Fields[0].Help != "Підказка" {
 		t.Errorf("form labels changed: %+v", fv)
 	}
 }

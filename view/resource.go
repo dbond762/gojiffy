@@ -137,7 +137,7 @@ type HeaderLink struct {
 type Resource[T any] struct {
 	Path         string         // /users — address of the list and action of the search form
 	Title        string         // Users — heading of the list
-	One          string         // User — heading of the edit form
+	EditTitle    func(T) string // User: Olya — heading of the edit form; nil takes Title instead
 	NewTitle     string         // New user — heading of the create form, when Form draws it creating
 	Empty        string         // the text of an empty list; empty is "Nothing found"
 	PerPage      int            // rows per page; 0 means gojiffy.PerPageDefault
@@ -404,7 +404,7 @@ func (rs Resource[T]) Form(item T, creating bool, opts Options, errs map[string]
 	if creating {
 		v.Title, v.Submit, v.Action = rs.NewTitle, t("Create"), rs.Path
 	} else {
-		v.Title, v.Submit, v.Action = rs.One, t("Save"), rs.Href(item)
+		v.Title, v.Submit, v.Action = rs.editTitle(item), t("Save"), rs.Href(item)
 	}
 
 	for _, f := range rs.Fields {
@@ -439,6 +439,16 @@ func (rs Resource[T]) Form(item T, creating bool, opts Options, errs map[string]
 		v.Fields = append(v.Fields, fv)
 	}
 	return v
+}
+
+// editTitle is EditTitle with a fallback: an application that never edits — a
+// log of events, say — has no per-record heading to write, and Title, the one
+// heading it does have, is a plain enough thing to fall back on.
+func (rs Resource[T]) editTitle(item T) string {
+	if rs.EditTitle == nil {
+		return rs.Title
+	}
+	return rs.EditTitle(item)
 }
 
 // Options — option sets for a <select> that are known only at run time (roles
