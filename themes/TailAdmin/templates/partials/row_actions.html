@@ -5,7 +5,12 @@
 		{{- else}}<a class="btn btn-sm" href="{{.Href}}">{{.Title}}</a>{{end -}}
 	{{end}}
 {{- else}}
-	{{/* details is the native disclosure element, so the dropdown does without js */}}
+	{{/* details is the native disclosure element, so the dropdown itself needs no
+	   js — only its position does, see layout.html. The menu stays absolute (out
+	   of flow) from the start: opening <details> would otherwise lay it out in
+	   place for the one frame before that script runs, pushing the rows under it
+	   down and back — a jitter, not just a wrongly-placed menu. absolute leaves
+	   nothing for the table to react to; js only ever swaps it for fixed. */}}
 	<details class="dropdown relative inline-block">
 		{{/* summary is not a button, and the cursor:pointer rule out of the Tailwind
 	   base does not cover it; select-none also stops text being selected on a

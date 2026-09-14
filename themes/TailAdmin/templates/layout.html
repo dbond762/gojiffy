@@ -93,6 +93,42 @@ addEventListener("click", e => {
 	if (link.contains(sel.anchorNode) && link.contains(sel.focusNode)) e.preventDefault();
 });
 
+// The actions dropdown lives inside a table that scrolls sideways
+// (max-w-full overflow-x-auto in table.html); clipping the horizontal
+// overflow clips the vertical overflow along with it, per the CSS spec's own
+// quirk, so a dropdown opened near the bottom row is cut off before the
+// footer rather than drawn over it. Fixed positioning, computed by hand, is
+// not part of that clip — it answers to the viewport, not the table. The
+// price is that the menu no longer travels with the row it belongs to: only
+// one stays open at a time, and any scroll closes it rather than leaving it
+// stranded over whatever ended up underneath.
+addEventListener("toggle", e => {
+	const details = e.target;
+	if (!details.matches?.(".dropdown")) return;
+	if (!details.open) return;
+
+	for (const other of document.querySelectorAll(".dropdown[open]")) {
+		if (other !== details) other.open = false;
+	}
+
+	const menu = details.querySelector("ul");
+	// the summary's own rect, not details' — with the menu already open and
+	// back in normal flow, details spans both and would double the offset
+	const rect = details.querySelector("summary").getBoundingClientRect();
+	menu.style.position = "fixed";
+	menu.style.top = rect.bottom + 4 + "px"; // the 4px the old mt-1 gave it
+	menu.style.right = innerWidth - rect.right + "px";
+}, true); // toggle does not bubble; capture reaches it from one listener anyway
+
+// Scrolling moves the row the menu was opened for out from under it — the
+// menu itself, fixed to the viewport, would not follow. Closing beats
+// tracking the scroll to keep repositioning it. Capture: scroll does not
+// bubble from the element that actually moved (the table's own horizontal
+// scroll, most often).
+addEventListener("scroll", () => {
+	document.querySelectorAll(".dropdown[open]").forEach(d => d.open = false);
+}, true);
+
 // A form with data-confirm asks first. The native <dialog> gives modality, the
 // backdrop, Esc and the focus return for free — Esc simply closes and submits
 // nothing. form.submit() raises no submit event, so it will not ask a second time.
