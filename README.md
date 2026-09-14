@@ -13,7 +13,6 @@ i18n.go                        каталог переводов
 auth/                          вход, сессия, CSRF, права на маршруте
 view/                          Resource/Table/Form/Field + отрисовка
 themes/TailAdmin/              оформление по умолчанию: шаблоны и CSS
-scheduler/                     суточный запуск фоновой задачи
 ```
 
 ## Ресурс
