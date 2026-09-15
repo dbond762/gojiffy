@@ -3,16 +3,21 @@ package view
 // Data for partials/table.html — the template knows nothing of any entity.
 
 // A Column with Search set draws a search[Search] filter field under its
-// heading: a text input, or a select with a fixed list when SearchOptions is
-// set as well (its first option is the empty value, clearing the filter).
+// heading: a text input, a select with a fixed list when SearchOptions is set as
+// well (its first option is the empty value, clearing the filter), or a text box
+// suggesting as you type when Lookup is.
 type Column struct {
 	Title, Class  string
 	Search        string // name of the search parameter, or "" for no filter
 	Query         string // what has been entered already
 	SearchOptions []Option
-	Actions       bool   // the search and reset buttons stand here in the filter row
-	SortHref      string // link to sort by this column; "" means sorting is not allowed
-	SortDir       string // current direction: "asc", "desc", or "" when not sorted by it
+	// Lookup — where the filter asks for suggestions, see Resource.WriteChoices;
+	// QueryText is how its Query reads.
+	Lookup, QueryText string
+	Empty             Option // a lookup's choice of records with nothing in the field, see Field.FilterEmpty; zero offers none
+	Actions           bool   // the search and reset buttons stand here in the filter row
+	SortHref          string // link to sort by this column; "" means sorting is not allowed
+	SortDir           string // current direction: "asc", "desc", or "" when not sorted by it
 }
 
 // RowAction — an action on a row. Post draws a button that submits the shared

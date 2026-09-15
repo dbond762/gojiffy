@@ -16,6 +16,14 @@
 				{{- if .SearchOptions}}<select class="field-select h-10 py-2" name="search[{{.Search}}]">
 					{{range .SearchOptions}}<option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>{{end}}
 				</select>
+				{{- else if .Lookup}}<div class="relative" data-lookup="{{.Lookup}}" data-empty="{{t "Nothing found"}}" data-placeholder="{{t "All"}}" data-blank="{{t "All"}}"{{if .Empty.Label}} data-none="{{.Empty.Label}}" data-none-value="{{.Empty.Value}}"{{end}}>
+					<input type="hidden" name="search[{{.Search}}]" value="{{.Query}}">
+					<button type="button" class="field-select lookup-button h-10 py-2" id="search-{{.Search}}" aria-haspopup="listbox" aria-expanded="false">{{with .QueryText}}{{.}}{{else}}<span class="text-gray-400">{{t "All"}}</span>{{end}}</button>
+					<div class="lookup-panel" data-panel hidden>
+						<input class="field-input h-10 py-2" type="search" placeholder="{{t "Search"}}" aria-label="{{t "Search"}}" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="true" aria-controls="search-{{.Search}}-list">
+						<ul id="search-{{.Search}}-list" role="listbox" class="lookup-list"></ul>
+					</div>
+				</div>
 				{{- else if .Search}}<input class="field-input h-10 py-2" type="search" name="search[{{.Search}}]" value="{{.Query}}" placeholder="{{.Title}}" autocomplete="off">{{end}}
 				{{- if .Actions}}<div class="flex justify-end gap-2"><button type="submit" class="btn btn-sm btn-primary">{{t "Search"}}</button><a class="btn btn-sm" href="{{$.Action}}">{{t "Reset"}}</a></div>{{end -}}
 			</td>{{end}}

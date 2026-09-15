@@ -238,6 +238,90 @@ func TestLookupChoicesAskTheStore(t *testing.T) {
 	}
 }
 
+// The kind of filter is the resource's to say, not guessed from the field: the
+// same choices may be a select, a text box that suggests, or plain text. What
+// lives in the store comes from the store of the list — a select of it whole,
+// the label of the value a lookup filters by — and the address of suggestions
+// answers a filter that is not in the form at all.
+func TestFilterIsChosen(t *testing.T) {
+	fixed := func(*probe) []Option { return []Option{{Value: "on"}, {Value: "off"}} }
+	store := chooser{
+		"system_type": {{Value: "1", Label: "Olya"}, {Value: "2", Label: "Oleg"}},
+		"login":       {{Value: "1", Label: "olya"}, {Value: "2", Label: "oleg"}},
+	}
+	rs := probeRes(
+		Field[probe]{Name: "status", Search: true, Choices: fixed, Text: func(p probe) string { return p.Status }},
+		Field[probe]{Name: "system_type", ListOnly: true, Search: true, Filter: FilterLookup, LookupChoices: true, LookupLimit: 1,
+			Text: func(p probe) string { return p.SystemType }},
+		Field[probe]{Name: "login", ListOnly: true, Search: true, Filter: FilterSelect, LookupChoices: true,
+			Text: func(p probe) string { return p.Login }},
+	)
+	st := listStore{store, lister{}}
+
+	get := func(query string) Table {
+		b, err := rs.ListBlock(httptest.NewRequest("GET", "/x?"+query, nil), st)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return b.Data.(ListView).Table
+	}
+
+	cols := get("search[system_type]=2&search[login]=1").Columns
+	if cols[0].SearchOptions != nil || cols[0].Lookup != "" {
+		t.Errorf("choices without a Filter: %+v, want a text box", cols[0])
+	}
+	if c := cols[1]; c.Lookup != "/x/choices?field=system_type" || c.Query != "2" || c.QueryText != "Oleg" {
+		t.Errorf("lookup filter: %+v, want the label of the value picked", c)
+	}
+	if c := cols[2]; len(c.SearchOptions) != 3 || !c.SearchOptions[1].Selected {
+		t.Errorf("select out of the store: %+v, want All and the store's two", c.SearchOptions)
+	}
+
+	w := httptest.NewRecorder()
+	rs.WriteChoices(w, httptest.NewRequest("GET", "/x/choices?field=system_type&q=Ol", nil), store)
+	var got []gojiffy.Choice
+	if json.Unmarshal(w.Body.Bytes(), &got) != nil || len(got) != 1 {
+		t.Errorf("suggestions for a filter-only field: %s", w.Body)
+	}
+
+	if _, err := rs.ListBlock(httptest.NewRequest("GET", "/x", nil), lister{}); err == nil {
+		t.Error("a list store that cannot answer the choices of its filters gave no error")
+	}
+}
+
+// A choice filter may look for records with nothing in the field — a client with
+// no manager: an option of its own right after All, in a select and a lookup
+// alike, and read without asking the store, which knows only values that exist.
+func TestFilterEmpty(t *testing.T) {
+	fixed := func(*probe) []Option { return []Option{{Value: "on"}} }
+	store := chooser{"system_type": {{Value: "1", Label: "Olya"}}}
+	rs := probeRes(
+		Field[probe]{Name: "status", Search: true, Filter: FilterSelect, FilterEmpty: "nobody",
+			Choices: fixed, Text: func(p probe) string { return p.Status }},
+		Field[probe]{Name: "system_type", Search: true, Filter: FilterLookup, FilterEmpty: "nobody",
+			LookupChoices: true, LookupLimit: 5, Text: func(p probe) string { return p.SystemType }},
+	)
+
+	query := "search[status]=" + gojiffy.SearchEmpty + "&search[system_type]=" + gojiffy.SearchEmpty
+	b, err := rs.ListBlock(httptest.NewRequest("GET", "/x?"+query, nil), listStore{store, lister{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cols := b.Data.(ListView).Table.Columns
+	if o := cols[0].SearchOptions; len(o) != 3 || o[1].Value != gojiffy.SearchEmpty || o[1].Label != "nobody" || !o[1].Selected {
+		t.Errorf("select: %+v, want All, then nobody selected, then the choices", o)
+	}
+	if c := cols[1]; c.Empty.Value != gojiffy.SearchEmpty || c.Empty.Label != "nobody" || c.QueryText != "nobody" {
+		t.Errorf("lookup: %+v, want nobody offered and read", c)
+	}
+}
+
+// listStore — a store of the list that also answers choices, as a real one does.
+type listStore struct {
+	chooser
+	lister
+}
+
 // A <select> knows no readonly: a readonly choice offers only the value it holds.
 func TestReadonlyChoiceOffersOnlyItsValue(t *testing.T) {
 	rs := probeRes(Field[probe]{
@@ -419,7 +503,7 @@ func TestChoicesDriveFilterFormAndParse(t *testing.T) {
 		"active":  {{Value: "active"}, {Value: "off"}},
 	}
 	rs := probeRes(Field[probe]{
-		Name: "status", Search: true, Required: true, Text: func(p probe) string { return p.Status },
+		Name: "status", Search: true, Filter: FilterSelect, Required: true, Text: func(p probe) string { return p.Status },
 		Choices: func(p *probe) []Option {
 			if p == nil {
 				return []Option{{Value: "pending"}, {Value: "active"}, {Value: "off"}}

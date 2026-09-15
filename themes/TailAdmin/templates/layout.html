@@ -152,25 +152,56 @@ addEventListener("submit", e => {
 	box.showModal();
 });
 
-// A field whose choices are too many for a select (Field.LookupLimit): the text
-// box only searches, the value is the hidden input beside it and changes only
-// when a suggestion is picked. Text typed and left behind never reaches the
-// server — leaving the box with nothing picked empties it. Suggestions come from
-// data-lookup (Resource.WriteChoices); the arrows walk them, Enter picks, Esc
-// closes.
+// A field whose choices are too many for a select (Field.LookupLimit, and the
+// FilterLookup filter), built after select2: a button that always reads what is
+// chosen, and a panel under it with a search box of its own and the suggestions.
+// Picking and searching never share one box, so "nothing chosen" and "started
+// typing" cannot be mistaken for each other. The value is the hidden input; the
+// suggestions come from data-lookup (Resource.WriteChoices). Enter, Space or the
+// down arrow on the button opens the panel, and so does typing on it; in the
+// panel the arrows walk the suggestions, Enter picks, Esc closes.
 for (const box of document.querySelectorAll("[data-lookup]")) {
-	const [value, input] = box.querySelectorAll("input");
-	const list = box.querySelector("[role=listbox]");
-	if (input.readOnly) continue;
+	const value = box.querySelector("input[type=hidden]");
+	const button = box.querySelector("button");
+	const panel = box.querySelector("[data-panel]");
+	const search = panel.querySelector("input");
+	const list = panel.querySelector("[role=listbox]");
 	let found = [], active = -1, timer, pending;
 
-	const close = () => {
+	// Fixed, measured from the button: under a column heading the box sits in the
+	// table that scrolls sideways, and that clips whatever hangs out of it, as
+	// with the actions dropdown above. A form field gets the same, for one rule.
+	// At least 240px wide, a narrow column would squeeze the names otherwise,
+	// and kept on the screen when that makes it wider than the button.
+	const place = () => {
+		const rect = button.getBoundingClientRect();
+		const width = Math.max(rect.width, 240);
+		Object.assign(panel.style, {
+			position: "fixed",
+			top: rect.bottom + "px",
+			left: Math.max(8, Math.min(rect.left, innerWidth - width - 8)) + "px",
+			width: width + "px",
+		});
+	};
+	// what the button reads: the label picked, or the placeholder in grey
+	const show = label => {
+		if (label) {
+			button.textContent = label;
+			return;
+		}
+		const none = document.createElement("span");
+		none.className = "text-gray-400";
+		none.textContent = box.dataset.placeholder;
+		button.replaceChildren(none);
+	};
+	const close = refocus => {
 		clearTimeout(timer);
 		pending?.abort();
-		list.hidden = true;
-		input.setAttribute("aria-expanded", "false");
-		input.removeAttribute("aria-activedescendant");
+		panel.hidden = true;
+		button.setAttribute("aria-expanded", "false");
+		search.removeAttribute("aria-activedescendant");
 		active = -1;
+		if (refocus) button.focus();
 	};
 	const mark = i => {
 		list.children[active]?.removeAttribute("data-active");
@@ -178,30 +209,40 @@ for (const box of document.querySelectorAll("[data-lookup]")) {
 		const li = list.children[i];
 		li.setAttribute("data-active", "");
 		li.scrollIntoView({block: "nearest"});
-		input.setAttribute("aria-activedescendant", li.id);
+		search.setAttribute("aria-activedescendant", li.id);
 	};
 	const pick = i => {
 		value.value = found[i].value;
-		input.value = found[i].label;
-		close();
+		show(found[i].value && found[i].label);
+		close(true);
 	};
-	const load = q => {
+	const load = () => {
+		const q = search.value.trim();
 		pending?.abort();
 		pending = new AbortController();
 		fetch(box.dataset.lookup + "&q=" + encodeURIComponent(q), {signal: pending.signal})
 			.then(r => r.ok ? r.json() : [])
 			.then(choices => {
+				// A field that may stay empty (data-blank: an optional form field, a
+				// filter) offers the empty value first, the way its select would; once
+				// something is typed, it is a search, and the empty value is no match.
+				if (q === "") {
+					const first = [];
+					if (box.dataset.blank !== undefined) first.push({value: "", label: box.dataset.blank});
+					// a search under a column heading may ask for records with nothing in the field (data-none)
+					if (box.dataset.none) first.push({value: box.dataset.noneValue, label: box.dataset.none});
+					choices = [...first, ...choices];
+				}
 				found = choices;
 				active = -1;
 				list.replaceChildren(...choices.map((c, i) => {
 					const li = document.createElement("li");
-					li.id = input.id + "-" + i;
+					li.id = button.id + "-" + i;
 					li.setAttribute("role", "option");
-					li.setAttribute("aria-selected", c.value === value.value); // the one already chosen
+					li.setAttribute("aria-selected", c.value === value.value);
 					li.className = "lookup-option";
 					li.textContent = c.label;
-					// mousedown, not click: the click comes after focusout, and focusout has closed the list
-					li.addEventListener("mousedown", e => { e.preventDefault(); pick(i); });
+					li.addEventListener("click", () => pick(i));
 					return li;
 				}));
 				if (!choices.length) {
@@ -210,53 +251,64 @@ for (const box of document.querySelectorAll("[data-lookup]")) {
 					li.textContent = box.dataset.empty;
 					list.append(li);
 				}
-				list.hidden = false;
-				input.setAttribute("aria-expanded", "true");
+				// the arrows start from what is chosen, as in a select
+				const chosen = choices.findIndex(c => c.value === value.value);
+				if (chosen >= 0) mark(chosen);
 			})
 			.catch(() => {}); // aborted: a newer request has taken its place
 	};
+	const open = () => {
+		if (!panel.hidden) return;
+		panel.hidden = false;
+		place();
+		button.setAttribute("aria-expanded", "true");
+		search.value = "";
+		load();
+		search.focus();
+	};
 
-	// A value already picked is not a search: show the first suggestions instead,
-	// and select its label so that typing replaces it rather than appending to it.
-	input.addEventListener("focus", () => {
-		input.select();
-		load(value.value ? "" : input.value);
-	});
-	input.addEventListener("input", e => {
-		// A picked label is one piece, as in a select: typing starts a new search
-		// with just what was typed, deleting empties the box. Focus may stay in the
-		// box after a pick, so selecting the label on focus alone would not cover it;
-		// and it is done here rather than before the edit, which not every way of
-		// editing announces.
-		if (value.value) {
-			input.value = e.inputType.startsWith("insert") ? e.data ?? "" : "";
-			value.value = "";
+	button.addEventListener("click", () => panel.hidden ? open() : close(true));
+	button.addEventListener("keydown", e => {
+		if (e.key === "ArrowDown" || e.key === "Enter" || e.key === " ") {
+			e.preventDefault();
+			open();
+		} else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+			open(); // not prevented: the key lands in the search box, focused by now
 		}
+	});
+	search.addEventListener("input", () => {
 		clearTimeout(timer);
-		timer = setTimeout(() => load(input.value), 200);
+		timer = setTimeout(load, 200);
 	});
-	// focusout rather than its twin that does not bubble: Tailwind reads every
-	// word of the templates as a possible class, and that twin's name is one,
-	// which would pull a whole unused block of CSS into the build
-	input.addEventListener("focusout", () => {
-		if (value.value === "") input.value = "";
-		close();
-	});
-	input.addEventListener("keydown", e => {
-		if (list.hidden || !found.length) return;
-		if (e.key === "ArrowDown") {
+	search.addEventListener("keydown", e => {
+		if (e.key === "Escape") {
+			e.preventDefault();
+			close(true);
+		} else if (e.key === "Enter") {
+			e.preventDefault(); // pick, never submit the form around
+			if (active >= 0) pick(active);
+		} else if (e.key === "ArrowDown" && found.length) {
 			e.preventDefault();
 			mark((active + 1) % found.length);
-		} else if (e.key === "ArrowUp") {
+		} else if (e.key === "ArrowUp" && found.length) {
 			e.preventDefault();
 			mark((active - 1 + found.length) % found.length);
-		} else if (e.key === "Enter" && active >= 0) {
-			e.preventDefault(); // pick, not submit the form
-			pick(active);
-		} else if (e.key === "Escape") {
-			close();
 		}
 	});
+	// A press inside the panel keeps the focus in the search box: a click on a
+	// suggestion or on the scrollbar of the list would take it away otherwise,
+	// and shut the panel before the click lands.
+	panel.addEventListener("mousedown", e => {
+		if (e.target !== search) e.preventDefault();
+	});
+	// focus gone from the whole box, by Tab or a click elsewhere, closes the panel
+	box.addEventListener("focusout", e => {
+		if (!box.contains(e.relatedTarget)) close(false);
+	});
+	// the panel follows its button when the page scrolls, see place
+	addEventListener("scroll", () => {
+		if (!panel.hidden) place();
+	}, true);
 }
 </script>
 {{range scripts}}<script src="{{.}}"></script>

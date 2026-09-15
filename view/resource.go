@@ -37,8 +37,8 @@ type Field[T any] struct {
 	EditOnly bool // a form field and nothing more: a password, a choice from a reference
 
 	// Choices — the fixed list of values the field takes, for enumerations and
-	// boolean flags. It makes both the filter and the form field a <select>, and
-	// Parse accepts nothing outside it. item is nil for the filter, which offers
+	// boolean flags. It makes the form field a <select>, and the filter too with
+	// FilterSelect, and Parse accepts nothing outside it. item is nil for the filter, which offers
 	// every value; for the form it is the record, so the list may depend on it —
 	// which statuses may follow the current one, say. Parse asks with the record
 	// as it came in, before anything from the request is stored.
@@ -46,8 +46,8 @@ type Field[T any] struct {
 
 	// LookupChoices — Choices that live in the store rather than in code: the
 	// form and Parse ask the gojiffy.Chooser they are given, by Name, and the
-	// field works as with Choices. A list filter does not ask: a column searched
-	// by name is a field of its own.
+	// field works as with Choices. A list filter asks the store of the list, see
+	// Filter.
 	LookupChoices bool
 	// LookupLimit makes a LookupChoices field too long for a select a text box
 	// that suggests as you type: what matches is asked of the store at most
@@ -58,10 +58,15 @@ type Field[T any] struct {
 	// list
 	Class  string // css class of the column, for its width say
 	Search bool
-	Sort   bool           // the heading becomes a sorting link
-	Text   func(T) string // the cell value, already formatted
-	Href   func(T) string // when set, the cell becomes a link
-	Bool   func(T) bool   // when set, the cell draws a tick or a cross instead of Text
+	Filter Filter // what the Search field draws under the heading; a text box by default
+	// FilterEmpty — the label of one more choice in a select or lookup filter:
+	// the records where the field is empty, see gojiffy.SearchEmpty. "" offers
+	// no such choice.
+	FilterEmpty string
+	Sort        bool           // the heading becomes a sorting link
+	Text        func(T) string // the cell value, already formatted
+	Href        func(T) string // when set, the cell becomes a link
+	Bool        func(T) bool   // when set, the cell draws a tick or a cross instead of Text
 
 	// form
 	Label    string // when the form needs other words than the list; empty takes Caption
@@ -96,6 +101,24 @@ type Field[T any] struct {
 
 	Permission string // the field is visible only with this permission, in list and form alike
 }
+
+// Filter — what a Search field draws under its heading in the list. It is the
+// resource's choice, not something guessed from the field: a status may be
+// better picked from a select, a name typed in part.
+type Filter int
+
+const (
+	// FilterText — a text box; how its text is matched is the store's business,
+	// by a part of the value usually.
+	FilterText Filter = iota
+	// FilterSelect — a select, All first, of the field's Choices or of its
+	// LookupChoices asked of the store of the list whole.
+	FilterSelect
+	// FilterLookup — a text box that suggests the field's LookupChoices as you
+	// type, at most LookupLimit at a time, the way the form field does; the list
+	// is filtered by the value picked, not by the text.
+	FilterLookup
+)
 
 // Action — an action on a record: its address is worked out from the record
 // itself. By default actions live together in the rightmost column of the list
@@ -262,8 +285,19 @@ func (rs Resource[T]) List(items []T, total int, p gojiffy.Paging, s gojiffy.Sea
 		if f.Search {
 			col.Search, col.Query = f.Name, s[f.Name]
 			filtered = true
-			if f.Choices != nil {
-				col.SearchOptions = selected(withAll(f.Choices(nil)), s[f.Name])
+			switch {
+			case f.Filter == FilterSelect && f.Choices != nil:
+				col.SearchOptions = selected(f.filterOptions(f.Choices(nil)), s[f.Name])
+			case f.Filter == FilterLookup:
+				// the label of the value comes from the store, see storeFilters;
+				// until then the value itself is at least something to read
+				col.Lookup, col.QueryText = rs.lookupURL(f), s[f.Name]
+				if f.FilterEmpty != "" {
+					col.Empty = Option{Value: gojiffy.SearchEmpty, Label: f.FilterEmpty}
+					if s[f.Name] == gojiffy.SearchEmpty {
+						col.QueryText = f.FilterEmpty // the store has no label for what is not there
+					}
+				}
 			}
 		}
 		if f.Sort {
@@ -418,11 +452,30 @@ func (f Field[T]) choices(ctx context.Context, store gojiffy.Chooser, item *T, q
 	if err != nil {
 		return nil, true, err
 	}
-	opts = make([]Option, len(list))
+	return options(list), true, nil
+}
+
+func options(list []gojiffy.Choice) []Option {
+	opts := make([]Option, len(list))
 	for i, c := range list {
 		opts[i] = Option{Value: c.Value, Label: c.Label}
 	}
-	return opts, true, nil
+	return opts
+}
+
+// filterOptions — the options of a select filter: All, the records with nothing
+// in the field when FilterEmpty offers them, then the choices themselves.
+func (f Field[T]) filterOptions(opts []Option) []Option {
+	if f.FilterEmpty != "" {
+		opts = append([]Option{{Value: gojiffy.SearchEmpty, Label: f.FilterEmpty}}, opts...)
+	}
+	return withAll(opts)
+}
+
+// lookupURL — where a field that suggests as you type asks for suggestions, the
+// form field and the list filter alike, see WriteChoices.
+func (rs Resource[T]) lookupURL(f Field[T]) string {
+	return rs.Path + "/choices?field=" + url.QueryEscape(f.Name)
 }
 
 // check makes the declared checks and gives back what went wrong, or "".
@@ -512,7 +565,7 @@ func (rs Resource[T]) Form(ctx context.Context, store gojiffy.Chooser, item T, c
 			fv.Value = f.Text(item)
 		}
 		if f.LookupChoices && f.LookupLimit > 0 {
-			fv.Lookup = rs.Path + "/choices?field=" + url.QueryEscape(f.Name)
+			fv.Lookup = rs.lookupURL(f)
 			opts, _, err := f.choices(ctx, store, &item, gojiffy.ChoiceQuery{Values: []string{fv.Value}})
 			if err != nil {
 				return FormView{}, err
@@ -569,10 +622,11 @@ func (rs Resource[T]) RenderForm(w http.ResponseWriter, r *http.Request, frame F
 	RenderPage(w, r, frame, status, "", nil, rs.FormBlock(form))
 }
 
-// WriteChoices answers a field with LookupLimit as its text box is typed into:
-// the matches for ?q= among the choices of ?field=, at most LookupLimit of them,
-// as JSON. A field the resource does not have, hides by For or does not look
-// up this way is a 404 — the address gives out nothing its form would not.
+// WriteChoices answers a field that suggests as you type — a form field with
+// LookupLimit or a FilterLookup filter: the matches for ?q= among the choices
+// of ?field=, at most LookupLimit of them, as JSON. A field the resource does
+// not have, hides by For or does not look up this way is a 404 — the address
+// gives out nothing its page would not.
 //
 //	mux.HandleFunc("GET /clients/choices", func(w http.ResponseWriter, r *http.Request) {
 //		rs.For(perms).WriteChoices(w, r, store)
@@ -580,7 +634,8 @@ func (rs Resource[T]) RenderForm(w http.ResponseWriter, r *http.Request, frame F
 func (rs Resource[T]) WriteChoices(w http.ResponseWriter, r *http.Request, store gojiffy.Chooser) {
 	name := r.URL.Query().Get("field")
 	i := slices.IndexFunc(rs.Fields, func(f Field[T]) bool {
-		return f.Name == name && f.inForm() && f.LookupChoices && f.LookupLimit > 0
+		return f.Name == name && f.LookupChoices &&
+			(f.inForm() && f.LookupLimit > 0 || f.inList() && f.Search && f.Filter == FilterLookup)
 	})
 	if i < 0 {
 		http.NotFound(w, r)
@@ -599,7 +654,7 @@ func (rs Resource[T]) WriteChoices(w http.ResponseWriter, r *http.Request, store
 		serverError(w, err)
 		return
 	}
-	if len(list) > f.LookupLimit {
+	if f.LookupLimit > 0 && len(list) > f.LookupLimit {
 		list = list[:f.LookupLimit]
 	}
 	if list == nil {
@@ -679,10 +734,57 @@ func MapList[M, T any](rs Resource[T], r *http.Request, store gojiffy.Lister[M],
 	for i, m := range models {
 		items[i] = f(m)
 	}
+	lv := rs.List(items, total, p, s, o)
+	if err := storeFilters(r.Context(), rs, store, &lv.Table); err != nil {
+		return Block{}, err
+	}
 	return Block{
 		Name:   "list",
 		Title:  rs.Title,
 		Crumbs: slices.Concat(rs.Crumbs, []Link{{Title: rs.Title}}),
-		Data:   rs.List(items, total, p, s, o),
+		Data:   lv,
 	}, nil
+}
+
+// storeFilters fills in the filters whose choices live in the store: a select
+// of them whole, or the label of the value a lookup filters by. The store asked
+// is the one of the list — it knows the records, and what they refer to.
+func storeFilters[T any](ctx context.Context, rs Resource[T], store any, tbl *Table) error {
+	i := -1
+	for _, f := range rs.Fields {
+		if !f.inList() {
+			continue
+		}
+		i++ // the columns of the fields come first and in the same order, see List
+		if !f.Search || !f.LookupChoices || f.Filter == FilterText {
+			continue
+		}
+		chooser, ok := store.(gojiffy.Chooser)
+		if !ok {
+			return fmt.Errorf("view: field %q filters by LookupChoices, but the store of the list is no gojiffy.Chooser", f.Name)
+		}
+		col := &tbl.Columns[i]
+		q := gojiffy.ChoiceQuery{}
+		if f.Filter == FilterLookup {
+			if col.Query == "" || col.Query == gojiffy.SearchEmpty {
+				continue // nothing to read, or read already, see List
+			}
+			q.Values = []string{col.Query}
+		}
+		list, err := chooser.Choices(ctx, f.Name, q)
+		if err != nil {
+			return err
+		}
+		opts := options(list)
+		if f.Filter == FilterSelect {
+			col.SearchOptions = selected(f.filterOptions(opts), col.Query)
+			continue
+		}
+		// a value the store no longer offers keeps showing itself: the list is
+		// filtered by it all the same
+		if j := slices.IndexFunc(opts, func(o Option) bool { return o.Value == col.Query }); j >= 0 {
+			col.QueryText = opts[j].Label
+		}
+	}
+	return nil
 }

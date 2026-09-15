@@ -344,9 +344,19 @@ layer(base);
    with the brand colour. The states arrive as attributes from the script in
    layout.html, so the markup there carries no class juggling. */
 
+/* the button reads what is chosen, cut short with an ellipsis if it is long */
+@utility lookup-button {
+  @apply block truncate text-left;
+}
+
+/* the panel under the button: the search box, then the suggestions */
+@utility lookup-panel {
+  @apply shadow-theme-lg absolute left-0 z-40 mt-1 w-full rounded-lg border border-gray-200
+    bg-white p-2;
+}
+
 @utility lookup-list {
-  @apply shadow-theme-lg absolute left-0 z-40 mt-1 max-h-64 w-full overflow-y-auto rounded-lg
-    border border-gray-200 bg-white;
+  @apply mt-2 max-h-64 overflow-y-auto;
 }
 
 @utility lookup-option {

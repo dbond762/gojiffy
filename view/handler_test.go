@@ -148,6 +148,40 @@ func TestCrumbToThisPageIsNotALink(t *testing.T) {
 	}
 }
 
+// A field that suggests as you type offers its empty value when it may stay
+// empty, the way a select does: an optional form field, and a filter with All.
+// A required field does not.
+func TestLookupOffersBlankWhenOptional(t *testing.T) {
+	store := chooser{"system_type": {{Value: "1", Label: "Olya"}}}
+	field := Field[probe]{
+		Name: "system_type", LookupChoices: true, LookupLimit: 5, Search: true, Filter: FilterLookup,
+		Value: func(p probe) string { return p.SystemType }, Text: func(p probe) string { return p.SystemType },
+	}
+	form := func(required bool) string {
+		f := field
+		f.Required = required
+		w := httptest.NewRecorder()
+		probeRes(f).RenderForm(w, httptest.NewRequest("GET", "/x/1", nil), frame, store, probe{}, false, nil)
+		return w.Body.String()
+	}
+	if !strings.Contains(form(false), `data-blank="`+T("— none —")+`"`) {
+		t.Error("an optional field offers no empty value")
+	}
+	if strings.Contains(form(true), "data-blank") {
+		t.Error("a required field offers an empty value")
+	}
+
+	list, err := probeRes(field).ListBlock(httptest.NewRequest("GET", "/x", nil), listStore{store, lister{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := httptest.NewRecorder()
+	RenderPage(w, httptest.NewRequest("GET", "/x", nil), frame, http.StatusOK, "", nil, list)
+	if !strings.Contains(w.Body.String(), `data-blank="`+T("All")+`"`) {
+		t.Error("a lookup filter offers no All")
+	}
+}
+
 // A component that failed gives 500 and nothing else: the page is built in a
 // buffer, so half of it never reaches an already-sent 200.
 func TestHandlerStopsOnError(t *testing.T) {
