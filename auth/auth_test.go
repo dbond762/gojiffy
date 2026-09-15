@@ -328,6 +328,31 @@ func TestSessionsEnd(t *testing.T) {
 	}
 }
 
+// The cookies are Secure unless the application says the panel is reached over
+// plain HTTP: the request cannot tell a proxy with HTTPS from no HTTPS at all.
+func TestCookiesSecure(t *testing.T) {
+	a := testAuth()
+	mux := http.NewServeMux()
+	a.Mount(mux)
+	secure := func() bool {
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, httptest.NewRequest("GET", "http://example.com/login", nil))
+		cs := w.Result().Cookies()
+		if len(cs) == 0 {
+			t.Fatal("the sign-in form set no cookie")
+		}
+		return cs[0].Secure
+	}
+
+	if !secure() {
+		t.Error("a cookie over plain HTTP is not Secure by default")
+	}
+	a.Insecure = true
+	if secure() {
+		t.Error("Insecure still sets Secure")
+	}
+}
+
 func cookie(cs []*http.Cookie, name string) string {
 	for _, c := range cs {
 		if c.Name == name && c.MaxAge > 0 {

@@ -79,6 +79,14 @@ type Auth struct {
 	key      []byte
 	home     string
 	attempts limiter // sign-in attempts per login, see limit.go
+
+	// Insecure lets the cookies go over plain HTTP too. By default they are
+	// Secure and travel only over HTTPS, whoever terminates it — this process or
+	// a proxy in front, which the request alone cannot tell apart from no HTTPS
+	// at all. Browsers count http://localhost as secure, so local development
+	// needs no Insecure; a panel reached over HTTP across a network does, and
+	// gives the session away to anyone listening on it.
+	Insecure bool
 }
 
 // New: key signs the session cookie (change the key and every session is
@@ -108,7 +116,7 @@ func (a *Auth) Require(next http.Handler) http.Handler {
 			// With no cookie there is nothing to clear, and clearing would take
 			// the CSRF cookie of a sign-in form open in another tab along.
 			if !errors.Is(err, http.ErrNoCookie) {
-				clearSession(w, r)
+				a.clearSession(w)
 			}
 			http.Redirect(w, r, loginPath, http.StatusSeeOther)
 			return
@@ -187,7 +195,7 @@ func (a *Auth) loginForm(w http.ResponseWriter, r *http.Request) {
 	token := CSRF(r)
 	if token == "" {
 		token = hex.EncodeToString(randomBytes(32))
-		setCookie(w, r, csrfCookie, token, sessionTTL)
+		a.setCookie(w, csrfCookie, token, sessionTTL)
 	}
 	view.Render(w, http.StatusOK, "login.html", loginPage(token, "", ""))
 }
@@ -221,8 +229,8 @@ func (a *Auth) login(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, view.T("internal error"), http.StatusInternalServerError)
 		return
 	}
-	setCookie(w, r, sessionCookie, a.sign(id, u.Session, time.Now().Add(sessionTTL)), sessionTTL)
-	setCookie(w, r, csrfCookie, hex.EncodeToString(randomBytes(32)), sessionTTL)
+	a.setCookie(w, sessionCookie, a.sign(id, u.Session, time.Now().Add(sessionTTL)), sessionTTL)
+	a.setCookie(w, csrfCookie, hex.EncodeToString(randomBytes(32)), sessionTTL)
 	http.Redirect(w, r, a.home, http.StatusSeeOther)
 }
 
@@ -241,7 +249,7 @@ func (a *Auth) logout(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	clearSession(w, r)
+	a.clearSession(w)
 	http.Redirect(w, r, loginPath, http.StatusSeeOther)
 }
 
@@ -300,21 +308,21 @@ func (a *Auth) verify(value string) (id int, session string, err error) {
 	return id, parts[2], err
 }
 
-func setCookie(w http.ResponseWriter, r *http.Request, name, value string, ttl time.Duration) {
+func (a *Auth) setCookie(w http.ResponseWriter, name, value string, ttl time.Duration) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     name,
 		Value:    value,
 		Path:     "/",
 		MaxAge:   int(ttl.Seconds()),
 		HttpOnly: true,
-		Secure:   r.TLS != nil,
+		Secure:   !a.Insecure,
 		SameSite: http.SameSiteLaxMode,
 	})
 }
 
-func clearSession(w http.ResponseWriter, r *http.Request) {
-	setCookie(w, r, sessionCookie, "", -time.Second)
-	setCookie(w, r, csrfCookie, "", -time.Second)
+func (a *Auth) clearSession(w http.ResponseWriter) {
+	a.setCookie(w, sessionCookie, "", -time.Second)
+	a.setCookie(w, csrfCookie, "", -time.Second)
 }
 
 func randomBytes(n int) []byte {
