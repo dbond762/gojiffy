@@ -1,5 +1,7 @@
 package gojiffy
 
+import "math"
+
 // PerPageDefault — rows per page when no size is given.
 const PerPageDefault = 20
 
@@ -15,6 +17,11 @@ func (p Paging) normalize() Paging {
 	}
 	if p.Page < 1 {
 		p.Page = 1
+	}
+	// ?page= is whatever was typed: a page too far to count an offset for would
+	// wrap it round to a negative one, which a database refuses
+	if last := math.MaxInt / p.PerPage; p.Page > last {
+		p.Page = last
 	}
 	return p
 }
