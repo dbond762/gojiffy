@@ -32,9 +32,16 @@ type Chooser interface {
 	Choices(ctx context.Context, field string) ([]Choice, error)
 }
 
+// Deleter — the record gone from every list, whether the store erases it or
+// only marks it deleted.
+type Deleter interface {
+	Delete(ctx context.Context, id int) error
+}
+
 type Store[M any] interface {
 	Lister[M]
 	Getter[M]
 	Creator[M]
 	Updater[M]
+	Deleter
 }
