@@ -661,6 +661,9 @@ func (rs Resource[T]) WriteChoices(w http.ResponseWriter, r *http.Request, store
 		list = []gojiffy.Choice{} // [] rather than null: the script walks it as it is
 	}
 	w.Header().Set("Content-Type", "application/json")
+	// names of the records are not kept by the browser, nor read as anything but JSON
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	if err := json.NewEncoder(w).Encode(list); err != nil {
 		log.Printf("view: choices of %q: %v", f.Name, err)
 	}

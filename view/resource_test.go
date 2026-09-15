@@ -283,6 +283,9 @@ func TestFilterIsChosen(t *testing.T) {
 	if json.Unmarshal(w.Body.Bytes(), &got) != nil || len(got) != 1 {
 		t.Errorf("suggestions for a filter-only field: %s", w.Body)
 	}
+	if w.Header().Get("Cache-Control") != "no-store" || w.Header().Get("X-Content-Type-Options") != "nosniff" {
+		t.Errorf("suggestions headers: %v", w.Header())
+	}
 
 	if _, err := rs.ListBlock(httptest.NewRequest("GET", "/x", nil), lister{}); err == nil {
 		t.Error("a list store that cannot answer the choices of its filters gave no error")

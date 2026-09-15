@@ -48,6 +48,34 @@ func TestHandlerDrawsEveryBlock(t *testing.T) {
 	}
 }
 
+// Every page, sign-in included, keeps out of the cache and out of other sites'
+// frames, and sends no address of the panel to them.
+func TestPageSecurityHeaders(t *testing.T) {
+	pages := map[string]*httptest.ResponseRecorder{"page": httptest.NewRecorder(), "sign-in": httptest.NewRecorder()}
+	Handler(frame, block(Block{Name: "list", Data: ListView{}})).
+		ServeHTTP(pages["page"], httptest.NewRequest("GET", "/clients", nil))
+	Render(pages["sign-in"], http.StatusOK, "login.html", FormView{})
+
+	for name, w := range pages {
+		h := w.Header()
+		for header, want := range map[string]string{
+			"Cache-Control":          "no-store",
+			"X-Content-Type-Options": "nosniff",
+			"Referrer-Policy":        "same-origin",
+		} {
+			if got := h.Get(header); got != want {
+				t.Errorf("%s: %s = %q, want %q", name, header, got, want)
+			}
+		}
+		csp := h.Get("Content-Security-Policy")
+		for _, directive := range []string{"frame-ancestors 'none'", "form-action 'self'"} {
+			if !strings.Contains(csp, directive) {
+				t.Errorf("%s: Content-Security-Policy %q has no %s", name, csp, directive)
+			}
+		}
+	}
+}
+
 // A component with nothing to show hands back an empty block instead of a
 // special case, so the caller has nothing to check.
 func TestHandlerSkipsEmptyBlock(t *testing.T) {

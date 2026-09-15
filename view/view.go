@@ -60,12 +60,21 @@ func Render(w http.ResponseWriter, status int, name string, data any) {
 		http.Error(w, t("internal error"), http.StatusInternalServerError)
 		return
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	h := w.Header()
+	h.Set("Content-Type", "text/html; charset=utf-8")
 	// Admin pages are not kept in browser history: no-store switches off the
 	// bfcache too, or the back button would show a page again with everything
 	// that was on it. What is meant to be shown once — a secret, a confirmation
 	// — would otherwise come back from the cache any number of times.
-	w.Header().Set("Cache-Control", "no-store")
+	h.Set("Cache-Control", "no-store")
+	h.Set("X-Content-Type-Options", "nosniff")
+	// A page of the admin panel is never drawn inside someone else's page, where
+	// a click on a decoy would land on a button here; its forms post nowhere but
+	// here. Scripts are left alone: the theme's own are inline.
+	h.Set("Content-Security-Policy", "frame-ancestors 'none'; form-action 'self'; base-uri 'self'; object-src 'none'")
+	// Addresses of the panel do not leave it: another site learns nothing of
+	// them from a link followed out of here.
+	h.Set("Referrer-Policy", "same-origin")
 	w.WriteHeader(status)
 	buf.WriteTo(w)
 }
