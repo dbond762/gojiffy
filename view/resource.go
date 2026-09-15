@@ -159,6 +159,12 @@ type Resource[T any] struct {
 	Fields       []Field[T]
 	Actions      []Action[T]
 	Header       []HeaderLink // buttons above the list, in order — see HeaderLink
+
+	// Crumbs — the trail above this resource, for one nested in another: the
+	// client a list of tokens belongs to. The list and the form put themselves
+	// after it, and a root resource leaves it empty. Like Path, it may be filled
+	// in once the parent is known.
+	Crumbs []Link
 }
 
 // For hands back a copy of the description without whatever the user has no
@@ -495,6 +501,10 @@ func (rs Resource[T]) Form(ctx context.Context, store gojiffy.Chooser, item T, c
 			}
 			fv.Options = selected(opts, fv.Value)
 			fv.Value = ""
+			// a <select> knows no readonly: the one option it may offer is the value it holds
+			if fv.Readonly {
+				fv.Options = slices.DeleteFunc(fv.Options, func(o Option) bool { return !o.Selected })
+			}
 		}
 		v.Fields = append(v.Fields, fv)
 	}
@@ -504,8 +514,8 @@ func (rs Resource[T]) Form(ctx context.Context, store gojiffy.Chooser, item T, c
 // RenderForm draws the form of a record as a page of its own: the heading of
 // the form is the page title, and the crumbs lead back to the list. A form that
 // comes back with errors answers 422, so a script or a test sees the failure
-// without reading the page. A page that needs more — crumbs of its own, a
-// notice above, buttons beside — builds it out of Form and RenderPage.
+// without reading the page. A page that needs more — a notice above, buttons
+// beside, crumbs of its own — builds it out of Form, FormBlock and RenderPage.
 //
 //	rs.RenderForm(w, r, a.Frame, a.db.Users(), u, creating, errs)
 func (rs Resource[T]) RenderForm(w http.ResponseWriter, r *http.Request, frame Frame,
@@ -520,10 +530,18 @@ func (rs Resource[T]) RenderForm(w http.ResponseWriter, r *http.Request, frame F
 	if len(errs) > 0 {
 		status = http.StatusUnprocessableEntity
 	}
-	RenderPage(w, r, frame, status, form.Title, []Link{
-		{Title: rs.Title, Href: rs.Path},
-		{Title: form.Title},
-	}, FormBlock(form))
+	RenderPage(w, r, frame, status, "", nil, rs.FormBlock(form))
+}
+
+// FormBlock puts a form on a page, panel and heading included, with the trail
+// through the list to it.
+func (rs Resource[T]) FormBlock(form FormView) Block {
+	return Block{
+		Name:   "form-panel",
+		Title:  form.Title,
+		Crumbs: slices.Concat(rs.Crumbs, []Link{{Title: rs.Title, Href: rs.Path}, {Title: form.Title}}),
+		Data:   form,
+	}
 }
 
 // editTitle is EditTitle with a fallback: an application that never edits — a
@@ -583,5 +601,10 @@ func MapList[M, T any](rs Resource[T], r *http.Request, store gojiffy.Lister[M],
 	for i, m := range models {
 		items[i] = f(m)
 	}
-	return Block{Name: "list", Title: rs.Title, Data: rs.List(items, total, p, s, o)}, nil
+	return Block{
+		Name:   "list",
+		Title:  rs.Title,
+		Crumbs: slices.Concat(rs.Crumbs, []Link{{Title: rs.Title}}),
+		Data:   rs.List(items, total, p, s, o),
+	}, nil
 }

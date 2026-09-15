@@ -23,9 +23,10 @@ type Page struct {
 // to say — and Handler skips it.
 //
 // Names of partials do not belong in application code: take a block from
-// Resource.ListBlock, FormBlock or NoticeBlock.
+// Resource.ListBlock, Resource.FormBlock or NoticeBlock.
 type Block struct {
-	Name  string
-	Title string // the page title, if this block is what sets it
-	Data  any
+	Name   string
+	Title  string // the page title, if this block is what sets it
+	Crumbs []Link // the trail in the header, if this block is what sets it
+	Data   any
 }

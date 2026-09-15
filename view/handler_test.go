@@ -1,11 +1,15 @@
 package view
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
+
+	"github.com/dbond762/gojiffy"
 )
 
 func frame(*http.Request) (Page, error) { return Page{UserName: "Petr"}, nil }
@@ -85,6 +89,65 @@ func TestRenderForm(t *testing.T) {
 	}
 }
 
+// lister — a store handing out the same records whatever is asked.
+type lister []probe
+
+func (l lister) List(context.Context, gojiffy.Search, gojiffy.Order, gojiffy.Paging) ([]probe, int, error) {
+	return l, len(l), nil
+}
+
+// A nested resource says once what it is nested in, and the list and the form
+// put themselves after it; a page that wants a trail of its own still says so.
+func TestCrumbsFollowTheResource(t *testing.T) {
+	rs := probeRes(Field[probe]{Name: "login", Caption: "Login"})
+	rs.Title = "Accounts"
+	rs.Crumbs = []Link{{Title: "Acme", Href: "/acme"}}
+
+	list, err := rs.ListBlock(httptest.NewRequest("GET", "/x", nil), lister{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []Link{{Title: "Acme", Href: "/acme"}, {Title: "Accounts"}}; !slices.Equal(list.Crumbs, want) {
+		t.Errorf("list crumbs: %+v, want %+v", list.Crumbs, want)
+	}
+	fb := rs.FormBlock(form(rs, probe{}))
+	if want := []Link{{Title: "Acme", Href: "/acme"}, {Title: "Accounts", Href: "/x"}, {Title: "Accounts"}}; !slices.Equal(fb.Crumbs, want) {
+		t.Errorf("form crumbs: %+v, want %+v", fb.Crumbs, want)
+	}
+
+	page := func(crumbs []Link) string {
+		w := httptest.NewRecorder()
+		RenderPage(w, httptest.NewRequest("GET", "/x", nil), frame, http.StatusOK, "", crumbs, NoticeBlock(nil), fb)
+		return w.Body.String()
+	}
+	if !strings.Contains(page(nil), `href="/acme"`) {
+		t.Error("the block's crumbs did not reach the page")
+	}
+	if body := page([]Link{{Title: "Elsewhere"}}); strings.Contains(body, `href="/acme"`) || !strings.Contains(body, "Elsewhere") {
+		t.Error("crumbs given to the page did not win over the block's")
+	}
+}
+
+// A crumb to the page it is on is only a label: the same trail, drawn on the
+// list it leads to, does not link the list to itself.
+func TestCrumbToThisPageIsNotALink(t *testing.T) {
+	crumbs := []Link{{Title: "Acme", Href: "/acme"}, {Title: "Here"}}
+	page := func(path string) string {
+		w := httptest.NewRecorder()
+		RenderPage(w, httptest.NewRequest("GET", path, nil), frame, http.StatusOK, "t", crumbs, NoticeBlock(&Notice{Title: "n"}))
+		return w.Body.String()
+	}
+	if strings.Contains(page("/acme"), `href="/acme"`) {
+		t.Error("the page links to itself in its crumbs")
+	}
+	if !strings.Contains(page("/acme/1"), `href="/acme"`) {
+		t.Error("a crumb to another page lost its link")
+	}
+	if crumbs[0].Href != "/acme" {
+		t.Error("the crumbs handed in were changed")
+	}
+}
+
 // A component that failed gives 500 and nothing else: the page is built in a
 // buffer, so half of it never reaches an already-sent 200.
 func TestHandlerStopsOnError(t *testing.T) {
@@ -133,7 +196,7 @@ func TestPageGivesFormsItsToken(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	RenderPage(w, httptest.NewRequest("GET", "/clients/1", nil), withToken, http.StatusOK,
-		"Client", nil, FormBlock(FormView{Action: "/clients/1", Submit: "Save"}))
+		"Client", nil, probeRes().FormBlock(FormView{Action: "/clients/1", Submit: "Save"}))
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("code %d", w.Code)

@@ -103,15 +103,17 @@ func Handler(frame Frame, comps ...Component) http.HandlerFunc {
 			}
 			blocks = append(blocks, b)
 		}
-		draw(w, page, http.StatusOK, blocks)
+		draw(w, r, page, http.StatusOK, blocks)
 	}
 }
 
 // RenderPage draws a page that Handler cannot: one with a status code of its
-// own (422 under a form that did not validate), its own breadcrumbs, or a 404
-// decided before any of this.
+// own (422 under a form that did not validate), or a 404 decided before any of
+// this. The title and the crumbs come from the blocks, as on any page; a title
+// or crumbs given here win over them — the way to put a trail of its own on one
+// page. Crumbs that are empty but not nil leave just the title in the header.
 //
-//	view.RenderPage(w, r, a.Frame, 422, title, crumbs, view.FormBlock(form))
+//	view.RenderPage(w, r, a.Frame, 422, "", nil, notice, rs.FormBlock(form))
 func RenderPage(w http.ResponseWriter, r *http.Request, frame Frame, status int,
 	title string, crumbs []Link, blocks ...Block) {
 
@@ -120,20 +122,30 @@ func RenderPage(w http.ResponseWriter, r *http.Request, frame Frame, status int,
 		serverError(w, err)
 		return
 	}
-	page.Title, page.Crumbs = title, crumbs
-	draw(w, page, status, blocks)
+	if title != "" {
+		page.Title = title
+	}
+	if crumbs != nil {
+		page.Crumbs = crumbs
+	}
+	draw(w, r, page, status, blocks)
 }
 
 // draw is where a page comes together whichever way it was built: nameless
-// blocks fall away, the title is taken from a block if nothing else set it, and
-// every form on the page gets the token of that page.
-func draw(w http.ResponseWriter, page Page, status int, blocks []Block) {
+// blocks fall away, the title and the crumbs are taken from the first block
+// that has them if nothing else set them, a crumb that leads to the page it is
+// on is drawn as plain text, and every form on the page gets the token of that
+// page.
+func draw(w http.ResponseWriter, r *http.Request, page Page, status int, blocks []Block) {
 	for _, b := range blocks {
 		if b.Name == "" {
 			continue
 		}
 		if page.Title == "" {
 			page.Title = b.Title
+		}
+		if page.Crumbs == nil {
+			page.Crumbs = b.Crumbs
 		}
 		// A form asks for the token no more than any other block does: the page
 		// holds it, and the form is told on the way in. Resource.Form has never
@@ -144,12 +156,18 @@ func draw(w http.ResponseWriter, page Page, status int, blocks []Block) {
 		}
 		page.Blocks = append(page.Blocks, b)
 	}
+	// One trail serves a list and its form: the client above the tokens is a
+	// way back from a token, but only a label on the client's own list. A new
+	// slice, not the one handed in — that one may be a resource's own.
+	crumbs := make([]Link, len(page.Crumbs))
+	for i, c := range page.Crumbs {
+		if c.Href == r.URL.Path {
+			c.Href = ""
+		}
+		crumbs[i] = c
+	}
+	page.Crumbs = crumbs
 	Render(w, status, "page.html", page)
-}
-
-// FormBlock puts a form on a page, panel and heading included.
-func FormBlock(v FormView) Block {
-	return Block{Name: "form-panel", Title: v.Title, Data: v}
 }
 
 // NoticeBlock puts a notice above the rest of the page. A nil notice gives an

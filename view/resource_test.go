@@ -177,6 +177,18 @@ func TestLookupChoicesAskTheStore(t *testing.T) {
 	}
 }
 
+// A <select> knows no readonly: a readonly choice offers only the value it holds.
+func TestReadonlyChoiceOffersOnlyItsValue(t *testing.T) {
+	rs := probeRes(Field[probe]{
+		Name: "status", Required: true, Value: func(p probe) string { return p.Status },
+		Readonly: func(probe) bool { return true },
+		Choices:  func(*probe) []Option { return []Option{{Value: "on"}, {Value: "off"}} },
+	})
+	if o := form(rs, probe{Status: "off"}).Fields[0].Options; len(o) != 1 || o[0].Value != "off" {
+		t.Errorf("options: %+v, want just off", o)
+	}
+}
+
 // What only stores what came in needs no Parse: the value lands in the field
 // the name refers to, underscores and case aside, embedded structs included —
 // trimmed, unless the field says otherwise.
