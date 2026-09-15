@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"reflect"
+	"regexp"
 	"slices"
 	"strings"
 	"unicode/utf8"
@@ -16,6 +17,7 @@ import (
 // library's own message in the language of the page.
 type FieldErrors struct {
 	Required, Min, Max string
+	Regex              string // a value that does not match Regex
 	Choice             string // a value that is not among Choices
 }
 
@@ -70,7 +72,10 @@ type Field[T any] struct {
 	NoTrim   bool // keep the spaces: a password is what it is, spaces and all
 	Required bool
 	Min, Max int // 0 means no limit
-	Errors   FieldErrors
+	// Regex — what a value that is there must look like. It is matched as it
+	// stands, so anchor it with ^ and $ to mean the whole value.
+	Regex  *regexp.Regexp
+	Errors FieldErrors
 
 	// The value goes into the string field of the record that Name refers to
 	// (status into Status, system_type into SystemType) before Parse is called,
@@ -417,6 +422,8 @@ func (f Field[T]) check(v string) string {
 		return or(f.Errors.Min, t(minKey, f.Min))
 	case f.Max > 0 && n > f.Max:
 		return or(f.Errors.Max, t(maxKey, f.Max))
+	case v != "" && f.Regex != nil && !f.Regex.MatchString(v):
+		return or(f.Errors.Regex, t("Invalid format"))
 	}
 	return ""
 }

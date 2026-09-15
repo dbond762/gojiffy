@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -287,6 +288,23 @@ func TestFieldChecks(t *testing.T) {
 	opt := probeRes(Field[probe]{Name: "login", Min: 3})
 	if _, errs := parse(opt, url.Values{"login": {""}}, probe{}, true); errs["login"] != "" {
 		t.Errorf("an empty optional field failed Min: %q", errs["login"])
+	}
+}
+
+// Regex is checked on a value that is there: an optional field may stay empty,
+// and the words of the application's own win over the library's.
+func TestRegexCheck(t *testing.T) {
+	letters := regexp.MustCompile(`^[a-z]+$`)
+	rs := probeRes(Field[probe]{Name: "login", Regex: letters})
+	for in, bad := range map[string]bool{"": false, "olya": false, "olya1": true, "../olya": true} {
+		if _, errs := parse(rs, url.Values{"login": {in}}, probe{}, true); (errs["login"] != "") != bad {
+			t.Errorf("%q: error %q, wanted one: %v", in, errs["login"], bad)
+		}
+	}
+
+	own := probeRes(Field[probe]{Name: "login", Regex: letters, Errors: FieldErrors{Regex: "letters only"}})
+	if _, errs := parse(own, url.Values{"login": {"olya1"}}, probe{}, true); errs["login"] != "letters only" {
+		t.Errorf("error %q, want the application's own", errs["login"])
 	}
 }
 
