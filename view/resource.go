@@ -2,8 +2,11 @@ package view
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
+	"net/url"
 	"reflect"
 	"regexp"
 	"slices"
@@ -46,6 +49,11 @@ type Field[T any] struct {
 	// field works as with Choices. A list filter does not ask: a column searched
 	// by name is a field of its own.
 	LookupChoices bool
+	// LookupLimit makes a LookupChoices field too long for a select a text box
+	// that suggests as you type: what matches is asked of the store at most
+	// LookupLimit at a time, through WriteChoices. 0 keeps the whole list in a
+	// select.
+	LookupLimit int
 
 	// list
 	Class  string // css class of the column, for its width say
@@ -363,7 +371,11 @@ func (rs Resource[T]) Parse(r *http.Request, store gojiffy.Chooser, item T, crea
 			v = strings.TrimSpace(v)
 		}
 		// asked before the value is stored: the list may depend on what the record held
-		opts, choice, err := f.choices(r.Context(), store, &item)
+		q := gojiffy.ChoiceQuery{}
+		if f.LookupLimit > 0 {
+			q.Values = []string{v} // a long list is asked only whether it holds this one
+		}
+		opts, choice, err := f.choices(r.Context(), store, &item, q)
 		if err != nil {
 			return item, nil, err
 		}
@@ -390,9 +402,10 @@ func (rs Resource[T]) Parse(r *http.Request, store gojiffy.Chooser, item T, crea
 	return item, errs, nil
 }
 
-// choices — what the field may take: its fixed Choices or, with LookupChoices, what
-// the store says. choice is false for a field that is not a choice at all.
-func (f Field[T]) choices(ctx context.Context, store gojiffy.Chooser, item *T) (opts []Option, choice bool, err error) {
+// choices — what the field may take: its fixed Choices or, with LookupChoices,
+// what the store answers to q. choice is false for a field that is not a choice
+// at all.
+func (f Field[T]) choices(ctx context.Context, store gojiffy.Chooser, item *T, q gojiffy.ChoiceQuery) (opts []Option, choice bool, err error) {
 	switch {
 	case f.Choices != nil:
 		return f.Choices(item), true, nil
@@ -401,7 +414,7 @@ func (f Field[T]) choices(ctx context.Context, store gojiffy.Chooser, item *T) (
 	case store == nil:
 		return nil, true, fmt.Errorf("view: field %q has LookupChoices, but there is no store to ask", f.Name)
 	}
-	list, err := store.Choices(ctx, f.Name)
+	list, err := store.Choices(ctx, f.Name, q)
 	if err != nil {
 		return nil, true, err
 	}
@@ -498,7 +511,23 @@ func (rs Resource[T]) Form(ctx context.Context, store gojiffy.Chooser, item T, c
 		case f.Text != nil:
 			fv.Value = f.Text(item)
 		}
-		opts, choice, err := f.choices(ctx, store, &item)
+		if f.LookupChoices && f.LookupLimit > 0 {
+			fv.Lookup = rs.Path + "/choices?field=" + url.QueryEscape(f.Name)
+			opts, _, err := f.choices(ctx, store, &item, gojiffy.ChoiceQuery{Values: []string{fv.Value}})
+			if err != nil {
+				return FormView{}, err
+			}
+			// a value the store no longer offers — a deleted manager — shows as
+			// nothing chosen, the way a select shows it
+			if i := slices.IndexFunc(opts, func(o Option) bool { return o.Value == fv.Value }); i >= 0 {
+				fv.ValueText = opts[i].Label
+			} else {
+				fv.Value = ""
+			}
+			v.Fields = append(v.Fields, fv)
+			continue
+		}
+		opts, choice, err := f.choices(ctx, store, &item, gojiffy.ChoiceQuery{})
 		if err != nil {
 			return FormView{}, err
 		}
@@ -538,6 +567,48 @@ func (rs Resource[T]) RenderForm(w http.ResponseWriter, r *http.Request, frame F
 		status = http.StatusUnprocessableEntity
 	}
 	RenderPage(w, r, frame, status, "", nil, rs.FormBlock(form))
+}
+
+// WriteChoices answers a field with LookupLimit as its text box is typed into:
+// the matches for ?q= among the choices of ?field=, at most LookupLimit of them,
+// as JSON. A field the resource does not have, hides by For or does not look
+// up this way is a 404 — the address gives out nothing its form would not.
+//
+//	mux.HandleFunc("GET /clients/choices", func(w http.ResponseWriter, r *http.Request) {
+//		rs.For(perms).WriteChoices(w, r, store)
+//	})
+func (rs Resource[T]) WriteChoices(w http.ResponseWriter, r *http.Request, store gojiffy.Chooser) {
+	name := r.URL.Query().Get("field")
+	i := slices.IndexFunc(rs.Fields, func(f Field[T]) bool {
+		return f.Name == name && f.inForm() && f.LookupChoices && f.LookupLimit > 0
+	})
+	if i < 0 {
+		http.NotFound(w, r)
+		return
+	}
+	f := rs.Fields[i]
+	if store == nil {
+		serverError(w, fmt.Errorf("view: field %q has LookupChoices, but there is no store to ask", f.Name))
+		return
+	}
+	list, err := store.Choices(r.Context(), f.Name, gojiffy.ChoiceQuery{
+		Search: strings.TrimSpace(r.URL.Query().Get("q")),
+		Limit:  f.LookupLimit,
+	})
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	if len(list) > f.LookupLimit {
+		list = list[:f.LookupLimit]
+	}
+	if list == nil {
+		list = []gojiffy.Choice{} // [] rather than null: the script walks it as it is
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(list); err != nil {
+		log.Printf("view: choices of %q: %v", f.Name, err)
+	}
 }
 
 // FormBlock puts a form on a page, panel and heading included, with the trail

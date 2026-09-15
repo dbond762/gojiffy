@@ -2,11 +2,13 @@ package view
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -138,12 +140,70 @@ func parse(rs Resource[probe], values url.Values, item probe, creating bool) (pr
 // chooser — a store answering LookupChoices fields out of a map.
 type chooser map[string][]gojiffy.Choice
 
-func (c chooser) Choices(_ context.Context, field string) ([]gojiffy.Choice, error) {
+// Choices narrows by Search and Values like a real store, but leaves Limit to
+// the library, so its own cut is what the tests see.
+func (c chooser) Choices(_ context.Context, field string, q gojiffy.ChoiceQuery) ([]gojiffy.Choice, error) {
 	list, ok := c[field]
 	if !ok {
 		return nil, errors.New("no choices for " + field)
 	}
-	return list, nil
+	var out []gojiffy.Choice
+	for _, ch := range list {
+		if strings.Contains(ch.Label, q.Search) && (q.Values == nil || slices.Contains(q.Values, ch.Value)) {
+			out = append(out, ch)
+		}
+	}
+	return out, nil
+}
+
+// A list too long for a select is asked by what was typed: the form shows how
+// the value held reads, Parse asks only about the value sent, and WriteChoices
+// hands out at most LookupLimit matches, and only for such a field.
+func TestLookupLimitAsksByWhatWasTyped(t *testing.T) {
+	rs := probeRes(Field[probe]{
+		Name: "system_type", LookupChoices: true, LookupLimit: 2,
+		Value: func(p probe) string { return p.SystemType },
+	}, Field[probe]{Name: "login"})
+	store := chooser{"system_type": {
+		{Value: "1", Label: "Olya"}, {Value: "2", Label: "Oleg"}, {Value: "3", Label: "Olena"}, {Value: "4", Label: "Petro"},
+	}}
+
+	fv, err := rs.Form(context.Background(), store, probe{SystemType: "4"}, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f := fv.Fields[0]; f.Lookup != "/x/choices?field=system_type" || f.Value != "4" || f.ValueText != "Petro" || f.Options != nil {
+		t.Errorf("field: %+v", f)
+	}
+	gone, err := rs.Form(context.Background(), store, probe{SystemType: "9"}, false, nil)
+	if f := gone.Fields[0]; err != nil || f.Value != "" || f.ValueText != "" {
+		t.Errorf("a value the store no longer offers: %+v, err %v — want nothing chosen", f, err)
+	}
+
+	p, errs, err := rs.Parse(post(url.Values{"system_type": {"9"}}), store, probe{SystemType: "4"}, false)
+	if err != nil || errs["system_type"] == "" || p.SystemType != "4" {
+		t.Errorf("a value outside the store: stored %q, errs %v, err %v", p.SystemType, errs, err)
+	}
+	p, errs, err = rs.Parse(post(url.Values{"system_type": {"3"}}), store, probe{}, false)
+	if err != nil || len(errs) > 0 || p.SystemType != "3" {
+		t.Errorf("a value the store offers: stored %q, errs %v, err %v", p.SystemType, errs, err)
+	}
+
+	suggest := func(query string) *httptest.ResponseRecorder {
+		w := httptest.NewRecorder()
+		rs.WriteChoices(w, httptest.NewRequest("GET", "/x/choices?"+query, nil), store)
+		return w
+	}
+	var got []gojiffy.Choice
+	if w := suggest("field=system_type&q=Ol"); json.Unmarshal(w.Body.Bytes(), &got) != nil || len(got) != 2 || got[0].Label != "Olya" {
+		t.Errorf("suggestions: %s", w.Body)
+	}
+	if w := suggest("field=system_type&q=Zz"); strings.TrimSpace(w.Body.String()) != "[]" {
+		t.Errorf("nothing found: %q, want []", w.Body)
+	}
+	if w := suggest("field=login&q=Ol"); w.Code != http.StatusNotFound {
+		t.Errorf("a field that is not looked up: code %d", w.Code)
+	}
 }
 
 // LookupChoices asks the store by Name and then works as Choices do; a field

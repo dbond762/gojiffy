@@ -151,6 +151,113 @@ addEventListener("submit", e => {
 	};
 	box.showModal();
 });
+
+// A field whose choices are too many for a select (Field.LookupLimit): the text
+// box only searches, the value is the hidden input beside it and changes only
+// when a suggestion is picked. Text typed and left behind never reaches the
+// server — leaving the box with nothing picked empties it. Suggestions come from
+// data-lookup (Resource.WriteChoices); the arrows walk them, Enter picks, Esc
+// closes.
+for (const box of document.querySelectorAll("[data-lookup]")) {
+	const [value, input] = box.querySelectorAll("input");
+	const list = box.querySelector("[role=listbox]");
+	if (input.readOnly) continue;
+	let found = [], active = -1, timer, pending;
+
+	const close = () => {
+		clearTimeout(timer);
+		pending?.abort();
+		list.hidden = true;
+		input.setAttribute("aria-expanded", "false");
+		input.removeAttribute("aria-activedescendant");
+		active = -1;
+	};
+	const mark = i => {
+		list.children[active]?.removeAttribute("data-active");
+		active = i;
+		const li = list.children[i];
+		li.setAttribute("data-active", "");
+		li.scrollIntoView({block: "nearest"});
+		input.setAttribute("aria-activedescendant", li.id);
+	};
+	const pick = i => {
+		value.value = found[i].value;
+		input.value = found[i].label;
+		close();
+	};
+	const load = q => {
+		pending?.abort();
+		pending = new AbortController();
+		fetch(box.dataset.lookup + "&q=" + encodeURIComponent(q), {signal: pending.signal})
+			.then(r => r.ok ? r.json() : [])
+			.then(choices => {
+				found = choices;
+				active = -1;
+				list.replaceChildren(...choices.map((c, i) => {
+					const li = document.createElement("li");
+					li.id = input.id + "-" + i;
+					li.setAttribute("role", "option");
+					li.setAttribute("aria-selected", c.value === value.value); // the one already chosen
+					li.className = "lookup-option";
+					li.textContent = c.label;
+					// mousedown, not click: the click comes after focusout, and focusout has closed the list
+					li.addEventListener("mousedown", e => { e.preventDefault(); pick(i); });
+					return li;
+				}));
+				if (!choices.length) {
+					const li = document.createElement("li");
+					li.className = "lookup-empty";
+					li.textContent = box.dataset.empty;
+					list.append(li);
+				}
+				list.hidden = false;
+				input.setAttribute("aria-expanded", "true");
+			})
+			.catch(() => {}); // aborted: a newer request has taken its place
+	};
+
+	// A value already picked is not a search: show the first suggestions instead,
+	// and select its label so that typing replaces it rather than appending to it.
+	input.addEventListener("focus", () => {
+		input.select();
+		load(value.value ? "" : input.value);
+	});
+	input.addEventListener("input", e => {
+		// A picked label is one piece, as in a select: typing starts a new search
+		// with just what was typed, deleting empties the box. Focus may stay in the
+		// box after a pick, so selecting the label on focus alone would not cover it;
+		// and it is done here rather than before the edit, which not every way of
+		// editing announces.
+		if (value.value) {
+			input.value = e.inputType.startsWith("insert") ? e.data ?? "" : "";
+			value.value = "";
+		}
+		clearTimeout(timer);
+		timer = setTimeout(() => load(input.value), 200);
+	});
+	// focusout rather than its twin that does not bubble: Tailwind reads every
+	// word of the templates as a possible class, and that twin's name is one,
+	// which would pull a whole unused block of CSS into the build
+	input.addEventListener("focusout", () => {
+		if (value.value === "") input.value = "";
+		close();
+	});
+	input.addEventListener("keydown", e => {
+		if (list.hidden || !found.length) return;
+		if (e.key === "ArrowDown") {
+			e.preventDefault();
+			mark((active + 1) % found.length);
+		} else if (e.key === "ArrowUp") {
+			e.preventDefault();
+			mark((active - 1 + found.length) % found.length);
+		} else if (e.key === "Enter" && active >= 0) {
+			e.preventDefault(); // pick, not submit the form
+			pick(active);
+		} else if (e.key === "Escape") {
+			close();
+		}
+	});
+}
 </script>
 {{range scripts}}<script src="{{.}}"></script>
 {{end}}

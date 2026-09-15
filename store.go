@@ -21,7 +21,20 @@ type Updater[M any] interface {
 }
 
 // Choice — one value a field may take and the words it is shown with.
-type Choice struct{ Value, Label string }
+type Choice struct {
+	Value string `json:"value"`
+	Label string `json:"label"`
+}
+
+// ChoiceQuery — which of a field's values the store is asked for. The zero
+// query is all of them: a short list drawn whole into a select. A long one is
+// asked by what was typed, a few at a time, and by the one value a form holds
+// or sent.
+type ChoiceQuery struct {
+	Search string   // a part of the label, as typed; "" is any
+	Values []string // only these values; nil is any
+	Limit  int      // at most this many; 0 is no limit
+}
 
 // Chooser — a store that knows the values a field may take when they live in
 // the data rather than in code: roles, managers, the clients a user may see.
@@ -29,7 +42,7 @@ type Choice struct{ Value, Label string }
 // not an empty list — an empty list is a real answer a form would silently
 // accept.
 type Chooser interface {
-	Choices(ctx context.Context, field string) ([]Choice, error)
+	Choices(ctx context.Context, field string, q ChoiceQuery) ([]Choice, error)
 }
 
 // Deleter — the record gone from every list, whether the store erases it or

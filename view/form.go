@@ -12,7 +12,10 @@ type FieldView struct {
 	Name, Label, Type, Value, Help, Error string
 	Autofill                              string // the autocomplete attribute: "new-password" stops a password manager filling it in
 	Options                               []Option
-	Required                              bool
+	// Lookup — where a field too long for a select asks for suggestions, see
+	// Resource.WriteChoices; ValueText is how its Value reads.
+	Lookup, ValueText string
+	Required          bool
 	// Readonly rather than disabled: the value still reaches the server and
 	// does not break required, and whether to accept it is up to Parse.
 	Readonly bool

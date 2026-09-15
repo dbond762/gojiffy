@@ -1,7 +1,16 @@
 {{define "field"}}
 <div class="mb-5">
 	<label class="field-label" for="f-{{.Name}}">{{.Label}}{{if .Required}} <span class="text-error-500">*</span>{{end}}</label>
-	{{if .Options}}
+	{{if .Lookup}}
+	{{/* too many choices for a select: the text box only searches, the value is
+	   the hidden input, see the lookup script in layout.html */}}
+	<div class="relative" data-lookup="{{.Lookup}}" data-empty="{{t "Nothing found"}}">
+		<input type="hidden" name="{{.Name}}" value="{{.Value}}">
+		{{/* field-select for the arrow: it opens a list, the way a select does */}}
+		<input class="field-select{{if .Error}} border-error-500{{end}}" id="f-{{.Name}}" type="text" value="{{.ValueText}}" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="f-{{.Name}}-list"{{if .Required}} aria-required="true"{{end}}{{if .Readonly}} readonly{{end}}>
+		<ul id="f-{{.Name}}-list" role="listbox" class="lookup-list" hidden></ul>
+	</div>
+	{{else if .Options}}
 	<select class="field-select{{if .Error}} border-error-500{{end}}" id="f-{{.Name}}" name="{{.Name}}"{{if .Required}} required{{end}}>
 		{{range .Options}}<option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>{{end}}
 	</select>
