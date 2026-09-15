@@ -20,6 +20,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -48,6 +49,11 @@ type User struct {
 	ID    int
 	Name  string
 	Perms gojiffy.Perms
+	// Session — what a session is signed with along with the id: a cookie
+	// signed with another value is refused. It changes through
+	// Store.EndSessions, and with it every session of the user is over. It is
+	// readable in the cookie, so a counter will do and a secret will not.
+	Session string
 }
 
 // Store — everything needed from the application.
@@ -61,6 +67,10 @@ type Store interface {
 	// User — the user for the id out of the session cookie. Called on every
 	// request, so permissions are always fresh: one taken away is gone at once.
 	User(ctx context.Context, id int) (User, error)
+	// EndSessions changes the user's Session, ending every session they have:
+	// the one signing out and any copy of its cookie stolen before. Signing out
+	// calls it; an application calls it too when a password is changed.
+	EndSessions(ctx context.Context, id int) error
 }
 
 // Auth holds the store and the signing key. Created once, at startup.
@@ -93,22 +103,13 @@ func (a *Auth) Mount(mux *http.ServeMux) {
 // for a POST. The user is put in the context — take it out with UserFrom.
 func (a *Auth) Require(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		c, err := r.Cookie(sessionCookie)
+		u, err := a.session(r)
 		if err != nil {
-			http.Redirect(w, r, loginPath, http.StatusSeeOther)
-			return
-		}
-		id, err := a.verify(c.Value)
-		if err != nil {
-			clearSession(w, r)
-			http.Redirect(w, r, loginPath, http.StatusSeeOther)
-			return
-		}
-		u, err := a.store.User(r.Context(), id)
-		if err != nil {
-			// The user was deleted or the database is silent — either way the
-			// session is over, and telling the two apart here buys nothing.
-			clearSession(w, r)
+			// With no cookie there is nothing to clear, and clearing would take
+			// the CSRF cookie of a sign-in form open in another tab along.
+			if !errors.Is(err, http.ErrNoCookie) {
+				clearSession(w, r)
+			}
 			http.Redirect(w, r, loginPath, http.StatusSeeOther)
 			return
 		}
@@ -131,6 +132,28 @@ func (a *Auth) Can(perm string, next http.HandlerFunc) http.HandlerFunc {
 		}
 		next(w, r)
 	}
+}
+
+// session — the user whose session the request carries, or why there is none:
+// no cookie, a forged or expired one, a user deleted or a database silent — the
+// session is over either way — or a session ended since the cookie was signed.
+func (a *Auth) session(r *http.Request) (User, error) {
+	c, err := r.Cookie(sessionCookie)
+	if err != nil {
+		return User{}, err
+	}
+	id, session, err := a.verify(c.Value)
+	if err != nil {
+		return User{}, err
+	}
+	u, err := a.store.User(r.Context(), id)
+	if err != nil {
+		return User{}, err
+	}
+	if session != u.Session {
+		return User{}, errors.New("session ended")
+	}
+	return u, nil
 }
 
 type ctxKey struct{}
@@ -192,7 +215,13 @@ func (a *Auth) login(w http.ResponseWriter, r *http.Request) {
 	}
 	a.attempts.forget(login)
 
-	setCookie(w, r, sessionCookie, a.sign(id, time.Now().Add(sessionTTL)), sessionTTL)
+	u, err := a.store.User(r.Context(), id)
+	if err != nil {
+		log.Printf("auth: user %d: %v", id, err)
+		http.Error(w, view.T("internal error"), http.StatusInternalServerError)
+		return
+	}
+	setCookie(w, r, sessionCookie, a.sign(id, u.Session, time.Now().Add(sessionTTL)), sessionTTL)
 	setCookie(w, r, csrfCookie, hex.EncodeToString(randomBytes(32)), sessionTTL)
 	http.Redirect(w, r, a.home, http.StatusSeeOther)
 }
@@ -201,6 +230,16 @@ func (a *Auth) logout(w http.ResponseWriter, r *http.Request) {
 	if !CheckCSRF(r) {
 		http.Error(w, "csrf token mismatch", http.StatusForbidden)
 		return
+	}
+	// Clearing the cookie is not enough: a copy taken before would still be
+	// good. A session already over has nothing left to end.
+	if u, err := a.session(r); err == nil {
+		if err := a.store.EndSessions(r.Context(), u.ID); err != nil {
+			// the cookie stays, so signing out can be tried again
+			log.Printf("auth: ending sessions of user %d: %v", u.ID, err)
+			http.Error(w, view.T("internal error"), http.StatusInternalServerError)
+			return
+		}
 	}
 	clearSession(w, r)
 	http.Redirect(w, r, loginPath, http.StatusSeeOther)
@@ -219,43 +258,46 @@ func loginPage(token, login, errMsg string) view.FormView {
 	}
 }
 
-// sign returns a cookie shaped base64(userID|exp).hmac
-func (a *Auth) sign(userID int, exp time.Time) string {
+// sign returns a cookie shaped base64(userID|exp|session).hmac
+func (a *Auth) sign(userID int, session string, exp time.Time) string {
 	payload := base64.RawURLEncoding.EncodeToString(
-		[]byte(strconv.Itoa(userID) + "|" + strconv.FormatInt(exp.Unix(), 10)))
+		[]byte(strconv.Itoa(userID) + "|" + strconv.FormatInt(exp.Unix(), 10) + "|" + session))
 	mac := hmac.New(sha256.New, a.key)
 	mac.Write([]byte(payload))
 	return payload + "." + hex.EncodeToString(mac.Sum(nil))
 }
 
-func (a *Auth) verify(value string) (int, error) {
+// verify gives back the user id and the session a cookie was signed with.
+func (a *Auth) verify(value string) (id int, session string, err error) {
 	payload, sig, ok := strings.Cut(value, ".")
 	if !ok {
-		return 0, errors.New("malformed cookie")
+		return 0, "", errors.New("malformed cookie")
 	}
 	mac := hmac.New(sha256.New, a.key)
 	mac.Write([]byte(payload))
 	want, err := hex.DecodeString(sig)
 	if err != nil || !hmac.Equal(want, mac.Sum(nil)) {
-		return 0, errors.New("signature does not match")
+		return 0, "", errors.New("signature does not match")
 	}
 
 	raw, err := base64.RawURLEncoding.DecodeString(payload)
 	if err != nil {
-		return 0, err
+		return 0, "", err
 	}
-	idStr, expStr, ok := strings.Cut(string(raw), "|")
-	if !ok {
-		return 0, errors.New("malformed cookie")
+	// the session goes last and may hold a | of its own
+	parts := strings.SplitN(string(raw), "|", 3)
+	if len(parts) != 3 {
+		return 0, "", errors.New("malformed cookie")
 	}
-	exp, err := strconv.ParseInt(expStr, 10, 64)
+	exp, err := strconv.ParseInt(parts[1], 10, 64)
 	if err != nil {
-		return 0, err
+		return 0, "", err
 	}
 	if time.Now().After(time.Unix(exp, 0)) {
-		return 0, errors.New("session expired")
+		return 0, "", errors.New("session expired")
 	}
-	return strconv.Atoi(idStr)
+	id, err = strconv.Atoi(parts[0])
+	return id, parts[2], err
 }
 
 func setCookie(w http.ResponseWriter, r *http.Request, name, value string, ttl time.Duration) {

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -14,20 +15,30 @@ import (
 )
 
 // fakeStore — one user whose password is "secret".
-type fakeStore struct{ perms gojiffy.Perms }
+type fakeStore struct {
+	perms   gojiffy.Perms
+	session int // what EndSessions moves on
+}
 
-func (s fakeStore) Authenticate(_ context.Context, login, password string) (int, error) {
+func (s *fakeStore) Authenticate(_ context.Context, login, password string) (int, error) {
 	if login != "petr" || password != "secret" {
 		return 0, errors.New("not that one")
 	}
 	return 42, nil
 }
 
-func (s fakeStore) User(_ context.Context, id int) (User, error) {
+func (s *fakeStore) User(_ context.Context, id int) (User, error) {
 	if id != 42 {
 		return User{}, errors.New("no such user")
 	}
-	return User{ID: 42, Name: "Petr", Perms: s.perms}, nil
+	return User{ID: 42, Name: "Petr", Perms: s.perms, Session: strconv.Itoa(s.session)}, nil
+}
+
+func (s *fakeStore) EndSessions(_ context.Context, id int) error {
+	if id == 42 {
+		s.session++
+	}
+	return nil
 }
 
 func testAuth(perms ...string) *Auth {
@@ -35,39 +46,39 @@ func testAuth(perms ...string) *Auth {
 	for _, s := range perms {
 		p[s] = true
 	}
-	return New(fakeStore{p}, []byte("test-key"), "/clients")
+	return New(&fakeStore{perms: p}, []byte("test-key"), "/clients")
 }
 
 func TestSessionCookie(t *testing.T) {
 	a := testAuth()
-	valid := a.sign(42, time.Now().Add(time.Hour))
+	valid := a.sign(42, "7|x", time.Now().Add(time.Hour))
 
-	if id, err := a.verify(valid); err != nil || id != 42 {
-		t.Fatalf("valid cookie: id=%d err=%v", id, err)
+	if id, session, err := a.verify(valid); err != nil || id != 42 || session != "7|x" {
+		t.Fatalf("valid cookie: id=%d session=%q err=%v", id, session, err)
 	}
 
 	// signature tampered with
 	broken := valid[:len(valid)-1] + string(valid[len(valid)-1]^1)
-	if _, err := a.verify(broken); err == nil {
+	if _, _, err := a.verify(broken); err == nil {
 		t.Error("tampered signature accepted")
 	}
 
 	// payload swapped, signature from another value
 	payload, sig, _ := strings.Cut(valid, ".")
-	if _, err := a.verify(payload + "x." + sig); err == nil {
+	if _, _, err := a.verify(payload + "x." + sig); err == nil {
 		t.Error("swapped payload accepted")
 	}
 
 	// someone else's key
-	if _, err := New(fakeStore{}, []byte("another"), "").verify(valid); err == nil {
+	if _, _, err := New(&fakeStore{}, []byte("another"), "").verify(valid); err == nil {
 		t.Error("cookie signed with another key accepted")
 	}
 
-	if _, err := a.verify(a.sign(42, time.Now().Add(-time.Minute))); err == nil {
+	if _, _, err := a.verify(a.sign(42, "0", time.Now().Add(-time.Minute))); err == nil {
 		t.Error("expired cookie accepted")
 	}
 
-	if _, err := a.verify("rubbish"); err == nil {
+	if _, _, err := a.verify("rubbish"); err == nil {
 		t.Error("rubbish accepted")
 	}
 }
@@ -172,7 +183,7 @@ func TestRequireChecksCSRF(t *testing.T) {
 
 	r := httptest.NewRequest("POST", "/clients", strings.NewReader(""))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	r.AddCookie(&http.Cookie{Name: sessionCookie, Value: a.sign(42, time.Now().Add(time.Hour))})
+	r.AddCookie(&http.Cookie{Name: sessionCookie, Value: a.sign(42, "0", time.Now().Add(time.Hour))})
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, r)
 
@@ -196,7 +207,7 @@ func TestCan(t *testing.T) {
 		a := testAuth(tc.perms...)
 		w := httptest.NewRecorder()
 		r := httptest.NewRequest("GET", "/clients", nil)
-		r.AddCookie(&http.Cookie{Name: sessionCookie, Value: a.sign(42, time.Now().Add(time.Hour))})
+		r.AddCookie(&http.Cookie{Name: sessionCookie, Value: a.sign(42, "0", time.Now().Add(time.Hour))})
 		a.Require(a.Can("clients.list", next)).ServeHTTP(w, r)
 
 		if w.Code != tc.want {
@@ -249,6 +260,71 @@ func TestLoginLimit(t *testing.T) {
 	a.attempts.reset = time.Now().Add(-time.Second) // the window is over
 	if w := post("petr", "secret"); w.Code != http.StatusSeeOther {
 		t.Errorf("signing in after the window gave %d", w.Code)
+	}
+}
+
+// A session ends for good: signing out refuses a copy of the cookie kept from
+// before, and so does the store moving the session on (a new password), while
+// a session begun after that goes through.
+func TestSessionsEnd(t *testing.T) {
+	a := testAuth()
+	store := a.store.(*fakeStore)
+	mux := http.NewServeMux()
+	a.Mount(mux)
+
+	signIn := func() string {
+		body := url.Values{"login": {"petr"}, "password": {"secret"}, "_csrf": {"tok"}}.Encode()
+		r := httptest.NewRequest("POST", "/login", strings.NewReader(body))
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		r.AddCookie(&http.Cookie{Name: csrfCookie, Value: "tok"})
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, r)
+		return cookie(w.Result().Cookies(), sessionCookie)
+	}
+	through := func(sid string) bool {
+		passed := false
+		r := httptest.NewRequest("GET", "/clients", nil)
+		r.AddCookie(&http.Cookie{Name: sessionCookie, Value: sid})
+		a.Require(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { passed = true })).
+			ServeHTTP(httptest.NewRecorder(), r)
+		return passed
+	}
+
+	sid := signIn()
+	if !through(sid) {
+		t.Fatal("a fresh session refused")
+	}
+	store.EndSessions(context.Background(), 42) // the password changed
+	if through(sid) {
+		t.Error("a session from before the new password let through")
+	}
+
+	sid = signIn()
+	if !through(sid) {
+		t.Fatal("a session begun after the new password refused")
+	}
+	body := url.Values{"_csrf": {"tok"}}.Encode()
+	r := httptest.NewRequest("POST", "/logout", strings.NewReader(body))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	r.AddCookie(&http.Cookie{Name: csrfCookie, Value: "tok"})
+	r.AddCookie(&http.Cookie{Name: sessionCookie, Value: sid})
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, r)
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("signing out gave %d", w.Code)
+	}
+	if through(sid) {
+		t.Error("a copy of the cookie kept from before signing out let through")
+	}
+
+	// signing out with no session at all ends nothing
+	before := store.session
+	r = httptest.NewRequest("POST", "/logout", strings.NewReader(body))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	r.AddCookie(&http.Cookie{Name: csrfCookie, Value: "tok"})
+	mux.ServeHTTP(httptest.NewRecorder(), r)
+	if store.session != before {
+		t.Error("signing out with no session ended sessions")
 	}
 }
 
