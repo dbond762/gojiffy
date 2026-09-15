@@ -205,6 +205,53 @@ func TestCan(t *testing.T) {
 	}
 }
 
+// Guessing is refused after loginAttempts tries at one login, the right
+// password included, while other logins go on as before; the window ending or
+// signing in successfully clears the count.
+func TestLoginLimit(t *testing.T) {
+	a := testAuth()
+	mux := http.NewServeMux()
+	a.Mount(mux)
+	post := func(login, password string) *httptest.ResponseRecorder {
+		body := url.Values{"login": {login}, "password": {password}, "_csrf": {"tok"}}.Encode()
+		r := httptest.NewRequest("POST", "/login", strings.NewReader(body))
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		r.AddCookie(&http.Cookie{Name: csrfCookie, Value: "tok"})
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, r)
+		return w
+	}
+
+	// a success clears the typos before it
+	for range loginAttempts - 1 {
+		post("petr", "typo")
+	}
+	if w := post("petr", "secret"); w.Code != http.StatusSeeOther {
+		t.Fatalf("signing in after typos gave %d", w.Code)
+	}
+
+	for i := range loginAttempts {
+		if w := post("petr", "guess"); w.Code != http.StatusUnauthorized {
+			t.Fatalf("attempt %d gave %d", i+1, w.Code)
+		}
+	}
+	w := post("petr", "secret")
+	if w.Code != http.StatusTooManyRequests || w.Header().Get("Retry-After") == "" {
+		t.Errorf("attempt over the limit gave %d, Retry-After %q", w.Code, w.Header().Get("Retry-After"))
+	}
+	if cookie(w.Result().Cookies(), sessionCookie) != "" {
+		t.Error("attempt over the limit started a session")
+	}
+	if w := post("ivan", "guess"); w.Code != http.StatusUnauthorized {
+		t.Errorf("another login gave %d", w.Code)
+	}
+
+	a.attempts.reset = time.Now().Add(-time.Second) // the window is over
+	if w := post("petr", "secret"); w.Code != http.StatusSeeOther {
+		t.Errorf("signing in after the window gave %d", w.Code)
+	}
+}
+
 func cookie(cs []*http.Cookie, name string) string {
 	for _, c := range cs {
 		if c.Name == name && c.MaxAge > 0 {

@@ -54,7 +54,9 @@ type User struct {
 type Store interface {
 	// Authenticate — the id of the user for this login and password. Any error
 	// means refusal: "no such login" and "wrong password" produce the same
-	// message, so the form cannot be used to enumerate logins.
+	// message, so the form cannot be used to enumerate logins. Nor should the
+	// time it takes: check the password against some hash even when there is
+	// no such login, or the missing bcrypt gives the login away.
 	Authenticate(ctx context.Context, login, password string) (int, error)
 	// User — the user for the id out of the session cookie. Called on every
 	// request, so permissions are always fresh: one taken away is gone at once.
@@ -63,9 +65,10 @@ type Store interface {
 
 // Auth holds the store and the signing key. Created once, at startup.
 type Auth struct {
-	store Store
-	key   []byte
-	home  string
+	store    Store
+	key      []byte
+	home     string
+	attempts limiter // sign-in attempts per login, see limit.go
 }
 
 // New: key signs the session cookie (change the key and every session is
@@ -173,6 +176,13 @@ func (a *Auth) login(w http.ResponseWriter, r *http.Request) {
 	}
 	login := strings.TrimSpace(r.PostFormValue("login"))
 
+	if ok, wait := a.attempts.try(login); !ok {
+		w.Header().Set("Retry-After", strconv.Itoa(int(wait.Seconds())+1))
+		view.Render(w, http.StatusTooManyRequests, "login.html",
+			loginPage(CSRF(r), login, view.T("Too many attempts, try again later")))
+		return
+	}
+
 	id, err := a.store.Authenticate(r.Context(), login, r.PostFormValue("password"))
 	if err != nil {
 		// One message for both cases — we do not hint whether the login exists.
@@ -180,6 +190,7 @@ func (a *Auth) login(w http.ResponseWriter, r *http.Request) {
 			loginPage(CSRF(r), login, view.T("Wrong login or password")))
 		return
 	}
+	a.attempts.forget(login)
 
 	setCookie(w, r, sessionCookie, a.sign(id, time.Now().Add(sessionTTL)), sessionTTL)
 	setCookie(w, r, csrfCookie, hex.EncodeToString(randomBytes(32)), sessionTTL)
