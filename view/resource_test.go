@@ -1,6 +1,7 @@
 package view
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -29,7 +30,7 @@ func listed(rs Resource[string]) []string {
 
 func labelled(rs Resource[string]) []string {
 	var out []string
-	for _, f := range rs.Form("a", false, nil, nil).Fields {
+	for _, f := range form(rs, "a").Fields {
 		out = append(out, f.Label)
 	}
 	return out
@@ -115,6 +116,67 @@ func post(values url.Values) *http.Request {
 	return r
 }
 
+// form and parse — the calls with no store: a test resource has no LookupChoices
+// field unless it says so, and then it calls Form or Parse itself.
+func form[T any](rs Resource[T], item T) FormView {
+	fv, err := rs.Form(context.Background(), nil, item, false, nil)
+	if err != nil {
+		panic(err)
+	}
+	return fv
+}
+
+func parse(rs Resource[probe], values url.Values, item probe, creating bool) (probe, map[string]string) {
+	p, errs, err := rs.Parse(post(values), nil, item, creating)
+	if err != nil {
+		panic(err)
+	}
+	return p, errs
+}
+
+// chooser — a store answering LookupChoices fields out of a map.
+type chooser map[string][]gojiffy.Choice
+
+func (c chooser) Choices(_ context.Context, field string) ([]gojiffy.Choice, error) {
+	list, ok := c[field]
+	if !ok {
+		return nil, errors.New("no choices for " + field)
+	}
+	return list, nil
+}
+
+// LookupChoices asks the store by Name and then works as Choices do; a field
+// that may stay empty gets a blank option to choose, and a store that cannot
+// answer — or no store at all — is an error rather than an empty select.
+func TestLookupChoicesAskTheStore(t *testing.T) {
+	rs := probeRes(Field[probe]{Name: "system_type", LookupChoices: true, Value: func(p probe) string { return p.SystemType }})
+	store := chooser{"system_type": {{Value: "win", Label: "Windows"}}}
+
+	fv, err := rs.Form(context.Background(), store, probe{SystemType: "win"}, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if o := fv.Fields[0].Options; len(o) != 2 || o[0].Value != "" || !o[1].Selected || o[1].Label != "Windows" {
+		t.Errorf("options: %+v, want the blank one and Windows selected", o)
+	}
+
+	p, errs, err := rs.Parse(post(url.Values{"system_type": {"mac"}}), store, probe{SystemType: "win"}, false)
+	if err != nil || errs["system_type"] == "" || p.SystemType != "win" {
+		t.Errorf("a forged value: stored %q, errs %v, err %v", p.SystemType, errs, err)
+	}
+	p, errs, err = rs.Parse(post(url.Values{"system_type": {""}}), store, probe{SystemType: "win"}, false)
+	if err != nil || len(errs) > 0 || p.SystemType != "" {
+		t.Errorf("the blank option: stored %q, errs %v, err %v", p.SystemType, errs, err)
+	}
+
+	if _, err := rs.Form(context.Background(), nil, probe{}, false, nil); err == nil {
+		t.Error("LookupChoices with no store drew a form")
+	}
+	if _, _, err := rs.Parse(post(url.Values{}), chooser{}, probe{}, false); err == nil {
+		t.Error("a store that does not know the field gave no error")
+	}
+}
+
 // What only stores what came in needs no Parse: the value lands in the field
 // the name refers to, underscores and case aside, embedded structs included —
 // trimmed, unless the field says otherwise.
@@ -126,7 +188,7 @@ func TestParseStoresWithoutParse(t *testing.T) {
 		Field[probe]{Name: "count"},
 	)
 	values := url.Values{"login": {"  olya "}, "system_type": {"Windows"}, "status": {" on "}, "count": {"7"}}
-	p, errs := rs.Parse(post(values), probe{Count: 3}, true)
+	p, errs := parse(rs, values, probe{Count: 3}, true)
 	if len(errs) > 0 {
 		t.Fatalf("errors: %v", errs)
 	}
@@ -153,7 +215,7 @@ func TestParseOverridesWhatWasStored(t *testing.T) {
 		p.Status = strings.ToUpper(v)
 		return nil
 	}})
-	p, errs := rs.Parse(post(url.Values{"status": {"on"}}), probe{}, true)
+	p, errs := parse(rs, url.Values{"status": {"on"}}, probe{}, true)
 	if len(errs) > 0 {
 		t.Fatal(errs)
 	}
@@ -170,7 +232,7 @@ func TestNoSetLeavesTheRecordForParse(t *testing.T) {
 		seen = p.Status
 		return nil
 	}})
-	p, _ := rs.Parse(post(url.Values{"status": {"active"}}), probe{Status: "pending"}, false)
+	p, _ := parse(rs, url.Values{"status": {"active"}}, probe{Status: "pending"}, false)
 	if seen != "pending" {
 		t.Errorf("Parse saw %q: the record was overwritten first", seen)
 	}
@@ -182,7 +244,7 @@ func TestNoSetLeavesTheRecordForParse(t *testing.T) {
 // A readonly input only shows the value: a forged request does not change it.
 func TestReadonlyIsNotTakenFromTheRequest(t *testing.T) {
 	rs := probeRes(Field[probe]{Name: "status", Readonly: func(p probe) bool { return p.Status == "locked" }})
-	p, _ := rs.Parse(post(url.Values{"status": {"open"}}), probe{Status: "locked"}, false)
+	p, _ := parse(rs, url.Values{"status": {"open"}}, probe{Status: "locked"}, false)
 	if p.Status != "locked" {
 		t.Errorf("Status = %q: a readonly field was taken from the request", p.Status)
 	}
@@ -203,7 +265,7 @@ func TestFieldChecks(t *testing.T) {
 		{"абвгд", false},
 		{"абвгде", true},
 	} {
-		_, errs := rs.Parse(post(url.Values{"login": {c.in}}), probe{}, true)
+		_, errs := parse(rs, url.Values{"login": {c.in}}, probe{}, true)
 		if got := errs["login"] != ""; got != c.bad {
 			t.Errorf("%q: error %q, wanted one: %v", c.in, errs["login"], c.bad)
 		}
@@ -211,7 +273,7 @@ func TestFieldChecks(t *testing.T) {
 
 	// Min is not Required: an optional field may stay empty
 	opt := probeRes(Field[probe]{Name: "login", Min: 3})
-	if _, errs := opt.Parse(post(url.Values{"login": {""}}), probe{}, true); errs["login"] != "" {
+	if _, errs := parse(opt, url.Values{"login": {""}}, probe{}, true); errs["login"] != "" {
 		t.Errorf("an empty optional field failed Min: %q", errs["login"])
 	}
 }
@@ -224,8 +286,8 @@ func TestFieldErrorsOverrideTheDefaults(t *testing.T) {
 		Errors: FieldErrors{Required: "who are you", Min: "too short a name", Max: "too long a name"}})
 
 	for in, want := range map[string]string{"": "who are you", "a": "too short a name", "abcd": "too long a name"} {
-		_, def := plain.Parse(post(url.Values{"login": {in}}), probe{}, true)
-		_, got := own.Parse(post(url.Values{"login": {in}}), probe{}, true)
+		_, def := parse(plain, url.Values{"login": {in}}, probe{}, true)
+		_, got := parse(own, url.Values{"login": {in}}, probe{}, true)
 		if def["login"] == "" || def["login"] == want {
 			t.Errorf("%q: no message of the library's own: %q", in, def["login"])
 		}
@@ -233,7 +295,7 @@ func TestFieldErrorsOverrideTheDefaults(t *testing.T) {
 			t.Errorf("%q: %q, want %q", in, got["login"], want)
 		}
 	}
-	if _, def := plain.Parse(post(url.Values{"login": {"abcd"}}), probe{}, true); !strings.Contains(def["login"], "3") {
+	if _, def := parse(plain, url.Values{"login": {"abcd"}}, probe{}, true); !strings.Contains(def["login"], "3") {
 		t.Errorf("the limit is not in the message: %q", def["login"])
 	}
 }
@@ -246,7 +308,7 @@ func TestFailedCheckSkipsParse(t *testing.T) {
 		called = true
 		return nil
 	}})
-	p, errs := rs.Parse(post(url.Values{"login": {"abc"}}), probe{}, true)
+	p, errs := parse(rs, url.Values{"login": {"abc"}}, probe{}, true)
 	if called {
 		t.Error("Parse ran after a failed check")
 	}
@@ -255,6 +317,54 @@ func TestFailedCheckSkipsParse(t *testing.T) {
 	}
 	if p.Login != "abc" {
 		t.Errorf("Login = %q: the typed value was lost", p.Login)
+	}
+}
+
+// Choices is one list for three places: every value in the filter, what the
+// record may take in the form, and nothing else accepted by Parse — asked with
+// the record as it came in, and a forged value not stored.
+func TestChoicesDriveFilterFormAndParse(t *testing.T) {
+	next := map[string][]Option{
+		"pending": {{Value: "pending"}},
+		"active":  {{Value: "active"}, {Value: "off"}},
+	}
+	rs := probeRes(Field[probe]{
+		Name: "status", Search: true, Required: true, Text: func(p probe) string { return p.Status },
+		Choices: func(p *probe) []Option {
+			if p == nil {
+				return []Option{{Value: "pending"}, {Value: "active"}, {Value: "off"}}
+			}
+			return next[p.Status]
+		},
+	})
+
+	col := rs.List(nil, 0, gojiffy.Paging{Page: 1, PerPage: 20}, gojiffy.Search{"status": "off"}, gojiffy.Order{}).Table.Columns[0]
+	if len(col.SearchOptions) != 4 || !col.SearchOptions[3].Selected {
+		t.Errorf("filter: %+v, want All and every value with off selected", col.SearchOptions)
+	}
+
+	fv := form(rs, probe{Status: "active"}).Fields[0]
+	if len(fv.Options) != 2 || !fv.Options[0].Selected || fv.Value != "" {
+		t.Errorf("form: %+v, want the record's own two with active selected", fv)
+	}
+
+	p, errs := parse(rs, url.Values{"status": {"active"}}, probe{Status: "pending"}, false)
+	if errs["status"] == "" {
+		t.Error("a value outside the record's choices was accepted")
+	}
+	if p.Status != "pending" {
+		t.Errorf("Status = %q: a forged value was stored", p.Status)
+	}
+
+	// an empty value fails Required and is not stored: that would leave the
+	// form with the choices of no status at all
+	if p, _ = parse(rs, url.Values{"status": {""}}, probe{Status: "active"}, false); p.Status != "active" {
+		t.Errorf("Status = %q: an empty value was stored", p.Status)
+	}
+
+	p, errs = parse(rs, url.Values{"status": {"off"}}, probe{Status: "active"}, false)
+	if len(errs) > 0 || p.Status != "off" {
+		t.Errorf("Status = %q, errs %v: an offered value was refused", p.Status, errs)
 	}
 }
 
@@ -308,7 +418,7 @@ func TestFormUsesEditTitle(t *testing.T) {
 		return "Account: " + p.Login
 	}
 
-	fv := rs.Form(probe{account: account{Login: "olya"}}, false, nil, nil)
+	fv := form(rs, probe{account: account{Login: "olya"}})
 	if fv.Title != "Account: olya" {
 		t.Errorf("title = %q", fv.Title)
 	}
@@ -321,7 +431,7 @@ func TestFormFallsBackToTitleWithoutEditTitle(t *testing.T) {
 	rs := probeRes(Field[probe]{Name: "login"})
 	rs.Title = "Accounts"
 
-	fv := rs.Form(probe{}, false, nil, nil)
+	fv := form(rs, probe{})
 	if fv.Title != "Accounts" {
 		t.Errorf("title = %q, want the resource's own Title", fv.Title)
 	}

@@ -1,8 +1,11 @@
 package view
 
 import (
+	"context"
+	"fmt"
 	"net/http"
 	"reflect"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -13,6 +16,7 @@ import (
 // library's own message in the language of the page.
 type FieldErrors struct {
 	Required, Min, Max string
+	Choice             string // a value that is not among Choices
 }
 
 // Field — a field of an entity in full. By default it is in both places at
@@ -27,24 +31,33 @@ type Field[T any] struct {
 	ListOnly bool // a column and nothing more: an id, a date the record carries
 	EditOnly bool // a form field and nothing more: a password, a choice from a reference
 
+	// Choices — the fixed list of values the field takes, for enumerations and
+	// boolean flags. It makes both the filter and the form field a <select>, and
+	// Parse accepts nothing outside it. item is nil for the filter, which offers
+	// every value; for the form it is the record, so the list may depend on it —
+	// which statuses may follow the current one, say. Parse asks with the record
+	// as it came in, before anything from the request is stored.
+	Choices func(item *T) []Option
+
+	// LookupChoices — Choices that live in the store rather than in code: the
+	// form and Parse ask the gojiffy.Chooser they are given, by Name, and the
+	// field works as with Choices. A list filter does not ask: a column searched
+	// by name is a field of its own.
+	LookupChoices bool
+
 	// list
 	Class  string // css class of the column, for its width say
 	Search bool
-	// SearchChoices, when set, draws the filter as a <select> with a fixed list
-	// (with All first) instead of a text field — for enumerations and boolean
-	// flags, where a substring match is the wrong question.
-	SearchChoices []Option
-	Sort          bool           // the heading becomes a sorting link
-	Text          func(T) string // the cell value, already formatted
-	Href          func(T) string // when set, the cell becomes a link
-	Bool          func(T) bool   // when set, the cell draws a tick or a cross instead of Text
+	Sort   bool           // the heading becomes a sorting link
+	Text   func(T) string // the cell value, already formatted
+	Href   func(T) string // when set, the cell becomes a link
+	Bool   func(T) bool   // when set, the cell draws a tick or a cross instead of Text
 
 	// form
 	Label    string // when the form needs other words than the list; empty takes Caption
 	Type     string
 	Help     string // hint under the field
 	HelpEdit string // hint when editing, if it differs
-	Options  string // key of an option set, making it a <select>
 	Value    func(T) string
 	Readonly func(T) bool // true only shows the field; what to accept is still up to Parse
 	// Autofill — the autocomplete attribute of the input: what a browser or a
@@ -230,8 +243,8 @@ func (rs Resource[T]) List(items []T, total int, p gojiffy.Paging, s gojiffy.Sea
 		if f.Search {
 			col.Search, col.Query = f.Name, s[f.Name]
 			filtered = true
-			if len(f.SearchChoices) > 0 {
-				col.SearchOptions = selected(withAll(f.SearchChoices), s[f.Name])
+			if f.Choices != nil {
+				col.SearchOptions = selected(withAll(f.Choices(nil)), s[f.Name])
 			}
 		}
 		if f.Sort {
@@ -321,10 +334,14 @@ func (rs Resource[T]) List(items []T, total int, p gojiffy.Paging, s gojiffy.Sea
 // Parse reads the request field by field: trims the value, stores it in the
 // record, makes the declared checks and only then calls the field's own Parse.
 // The value is stored even when a check fails — the form comes back with what
-// was typed, not with what was there before. A field that fails a check does
-// not get to Parse: one error per field is enough, and the first is the one to
-// fix.
-func (rs Resource[T]) Parse(r *http.Request, item T, creating bool) (T, map[string]string) {
+// was typed, not with what was there before — except a value outside Choices:
+// that one was not typed but forged, and the record keeps what it had. A field
+// that fails a check does not get to Parse: one error per field is enough, and
+// the first is the one to fix.
+//
+// store answers the LookupChoices fields and may be nil when there are none; the
+// error is the store's own, or a field with LookupChoices and no store to ask.
+func (rs Resource[T]) Parse(r *http.Request, store gojiffy.Chooser, item T, creating bool) (T, map[string]string, error) {
 	errs := map[string]string{}
 	for _, f := range rs.Fields {
 		if !f.inForm() {
@@ -334,11 +351,22 @@ func (rs Resource[T]) Parse(r *http.Request, item T, creating bool) (T, map[stri
 		if !f.NoTrim {
 			v = strings.TrimSpace(v)
 		}
+		// asked before the value is stored: the list may depend on what the record held
+		opts, choice, err := f.choices(r.Context(), store, &item)
+		if err != nil {
+			return item, nil, err
+		}
+		// empty is what the form's own blank option sends when the field is not Required
+		offered := !choice || v == "" && !f.Required || slices.ContainsFunc(opts, func(o Option) bool { return o.Value == v })
 		// a readonly field is not taken from the request: the input only shows it
-		if !f.NoSet && (f.Readonly == nil || !f.Readonly(item)) {
+		if offered && !f.NoSet && (f.Readonly == nil || !f.Readonly(item)) {
 			set(&item, f.Name, v)
 		}
-		if msg := f.check(v); msg != "" {
+		msg := f.check(v)
+		if msg == "" && !offered {
+			msg = or(f.Errors.Choice, t("Choose one of the options"))
+		}
+		if msg != "" {
 			errs[f.Name] = msg
 			continue
 		}
@@ -348,7 +376,29 @@ func (rs Resource[T]) Parse(r *http.Request, item T, creating bool) (T, map[stri
 			}
 		}
 	}
-	return item, errs
+	return item, errs, nil
+}
+
+// choices — what the field may take: its fixed Choices or, with LookupChoices, what
+// the store says. choice is false for a field that is not a choice at all.
+func (f Field[T]) choices(ctx context.Context, store gojiffy.Chooser, item *T) (opts []Option, choice bool, err error) {
+	switch {
+	case f.Choices != nil:
+		return f.Choices(item), true, nil
+	case !f.LookupChoices:
+		return nil, false, nil
+	case store == nil:
+		return nil, true, fmt.Errorf("view: field %q has LookupChoices, but there is no store to ask", f.Name)
+	}
+	list, err := store.Choices(ctx, f.Name)
+	if err != nil {
+		return nil, true, err
+	}
+	opts = make([]Option, len(list))
+	for i, c := range list {
+		opts[i] = Option{Value: c.Value, Label: c.Label}
+	}
+	return opts, true, nil
 }
 
 // check makes the declared checks and gives back what went wrong, or "".
@@ -397,9 +447,12 @@ func set[T any](item *T, name, v string) {
 }
 
 // Form builds the form for the template: values out of the record, errors under
-// the fields, options for a select out of opts. The CSRF token is not asked for
-// here — a page puts it into every form it draws, see Handler and RenderPage.
-func (rs Resource[T]) Form(item T, creating bool, opts Options, errs map[string]string) FormView {
+// the fields, options for a select out of Choices or, with LookupChoices, out of
+// store — nil when the resource has none. A select that is not Required starts
+// with a blank option, so that "nothing" can be chosen back. The CSRF token is
+// not asked for here — a page puts it into every form it draws, see Handler and
+// RenderPage.
+func (rs Resource[T]) Form(ctx context.Context, store gojiffy.Chooser, item T, creating bool, errs map[string]string) (FormView, error) {
 	v := FormView{CancelURL: rs.Path}
 	if creating {
 		v.Title, v.Submit, v.Action = rs.NewTitle, t("Create"), rs.Path
@@ -432,13 +485,45 @@ func (rs Resource[T]) Form(item T, creating bool, opts Options, errs map[string]
 		case f.Text != nil:
 			fv.Value = f.Text(item)
 		}
-		if f.Options != "" {
-			fv.Options = selected(opts[f.Options], fv.Value)
+		opts, choice, err := f.choices(ctx, store, &item)
+		if err != nil {
+			return FormView{}, err
+		}
+		if choice {
+			if !f.Required {
+				opts = append([]Option{{Label: t("— none —")}}, opts...)
+			}
+			fv.Options = selected(opts, fv.Value)
 			fv.Value = ""
 		}
 		v.Fields = append(v.Fields, fv)
 	}
-	return v
+	return v, nil
+}
+
+// RenderForm draws the form of a record as a page of its own: the heading of
+// the form is the page title, and the crumbs lead back to the list. A form that
+// comes back with errors answers 422, so a script or a test sees the failure
+// without reading the page. A page that needs more — crumbs of its own, a
+// notice above, buttons beside — builds it out of Form and RenderPage.
+//
+//	rs.RenderForm(w, r, a.Frame, a.db.Users(), u, creating, errs)
+func (rs Resource[T]) RenderForm(w http.ResponseWriter, r *http.Request, frame Frame,
+	store gojiffy.Chooser, item T, creating bool, errs map[string]string) {
+
+	form, err := rs.Form(r.Context(), store, item, creating, errs)
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	status := http.StatusOK
+	if len(errs) > 0 {
+		status = http.StatusUnprocessableEntity
+	}
+	RenderPage(w, r, frame, status, form.Title, []Link{
+		{Title: rs.Title, Href: rs.Path},
+		{Title: form.Title},
+	}, FormBlock(form))
 }
 
 // editTitle is EditTitle with a fallback: an application that never edits — a
@@ -450,10 +535,6 @@ func (rs Resource[T]) editTitle(item T) string {
 	}
 	return rs.EditTitle(item)
 }
-
-// Options — option sets for a <select> that are known only at run time (roles
-// out of the database and the like): the key matches Field.Options.
-type Options map[string][]Option
 
 func selected(opts []Option, value string) []Option {
 	out := make([]Option, len(opts))

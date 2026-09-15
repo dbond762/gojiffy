@@ -73,7 +73,7 @@ func TestResourceLabelsPassThrough(t *testing.T) {
 		t.Errorf("the action caption changed: %q", got)
 	}
 
-	fv := rs.Form("a", false, nil, nil)
+	fv := form(rs, "a")
 	if fv.Title != rs.EditTitle("a") || fv.Fields[0].Label != "Значення" || fv.Fields[0].Help != "Підказка" {
 		t.Errorf("form labels changed: %+v", fv)
 	}

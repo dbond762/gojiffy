@@ -57,6 +57,34 @@ func TestHandlerSkipsEmptyBlock(t *testing.T) {
 	}
 }
 
+// A form page is the form with the way back to its list: 200 when it is drawn
+// fresh, 422 when it came back with errors, 500 when its choices could not be
+// had — never a form with an empty select.
+func TestRenderForm(t *testing.T) {
+	rs := probeRes(Field[probe]{Name: "login", Caption: "Login"})
+	rs.Title, rs.NewTitle = "Accounts", "New account"
+	draw := func(rs Resource[probe], errs map[string]string) *httptest.ResponseRecorder {
+		w := httptest.NewRecorder()
+		rs.RenderForm(w, httptest.NewRequest("GET", "/x/new", nil), frame, nil, probe{}, true, errs)
+		return w
+	}
+
+	w := draw(rs, nil)
+	body := w.Body.String()
+	if w.Code != http.StatusOK || !strings.Contains(body, "<title>New account") || !strings.Contains(body, "Accounts") {
+		t.Errorf("fresh form: code %d, title or crumb to the list missing", w.Code)
+	}
+
+	if w := draw(rs, map[string]string{"login": "already taken"}); w.Code != http.StatusUnprocessableEntity || !strings.Contains(w.Body.String(), "already taken") {
+		t.Errorf("form with errors: code %d", w.Code)
+	}
+
+	rs.Fields[0].LookupChoices = true // and no store to ask
+	if w := draw(rs, nil); w.Code != http.StatusInternalServerError {
+		t.Errorf("choices that could not be had: code %d", w.Code)
+	}
+}
+
 // A component that failed gives 500 and nothing else: the page is built in a
 // buffer, so half of it never reaches an already-sent 200.
 func TestHandlerStopsOnError(t *testing.T) {
