@@ -613,3 +613,36 @@ func TestFormFallsBackToTitleWithoutEditTitle(t *testing.T) {
 		t.Errorf("title = %q, want the resource's own Title", fv.Title)
 	}
 }
+
+// An action hidden for a row leaves that row alone and the others as they were;
+// a column of its own stays a column, only its cell is empty.
+func TestHideLeavesTheActionOffTheRow(t *testing.T) {
+	rs := rec(Field[string]{Name: "v", Caption: "V", Text: func(s string) string { return s }})
+	href := func(s string) string { return "/x/" + s }
+	onlyA := func(s string) bool { return s != "a" }
+	rs.Actions = []Action[string]{
+		{Title: "Own", Href: href, Column: true, Hide: onlyA},
+		{Title: "Edit", Href: href},
+		{Title: "Extend", Href: href, Hide: onlyA},
+	}
+
+	rows := rs.List([]string{"a", "b"}, 2, gojiffy.Paging{Page: 1, PerPage: 20}, nil, gojiffy.Order{}).Table.Rows
+	titles := func(c Cell) (out []string) {
+		for _, a := range c.Actions {
+			out = append(out, a.Title)
+		}
+		return out
+	}
+	if got := titles(rows[0][1]); !slices.Equal(got, []string{"Own"}) {
+		t.Errorf("row a, own column: %v", got)
+	}
+	if got := titles(rows[0][2]); !slices.Equal(got, []string{"Edit", "Extend"}) {
+		t.Errorf("row a, menu: %v", got)
+	}
+	if got := titles(rows[1][1]); len(got) != 0 {
+		t.Errorf("row b, own column should be empty: %v", got)
+	}
+	if got := titles(rows[1][2]); !slices.Equal(got, []string{"Edit"}) {
+		t.Errorf("row b, menu: %v", got)
+	}
+}

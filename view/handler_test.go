@@ -273,3 +273,30 @@ func TestPageGivesFormsItsToken(t *testing.T) {
 		t.Errorf("the form went out without the token of its page: %s", form)
 	}
 }
+
+// A Link button is a plain link to a page of its own; the others still post
+// their own form with the token.
+func TestFormButtonLink(t *testing.T) {
+	rs := probeRes(Field[probe]{Name: "login", Caption: "Login"})
+	form, err := rs.Form(context.Background(), nil, probe{}, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	form.Buttons = []Button{
+		{Title: "Extend", Action: "/x/1/extend", Link: true},
+		{Title: "Regenerate", Action: "/x/1/generate"},
+	}
+	w := httptest.NewRecorder()
+	RenderPage(w, httptest.NewRequest("GET", "/x/1", nil), frame, http.StatusOK, "", nil, rs.FormBlock(form))
+	body := w.Body.String()
+
+	if !strings.Contains(body, `<a class="btn " href="/x/1/extend">Extend</a>`) {
+		t.Error("the link button is not a link")
+	}
+	if strings.Contains(body, `action="/x/1/extend"`) {
+		t.Error("the link button still posts a form")
+	}
+	if !strings.Contains(body, `<form method="post" action="/x/1/generate"`) {
+		t.Error("the plain button lost its form")
+	}
+}

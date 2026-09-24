@@ -133,6 +133,7 @@ type Action[T any] struct {
 	Column     bool           // a column of its own instead of the shared bunch
 	Post       bool           // changes state: a button in a form, not a link
 	Confirm    func(T) string // the confirmation text; nil or "" asks nothing
+	Hide       func(T) bool   // true leaves the action off that row; nil shows it everywhere
 }
 
 // rowAction turns the declaration into what the template draws.
@@ -145,6 +146,17 @@ func (a Action[T]) rowAction(item T) RowAction {
 		r.Confirm = a.Confirm(item)
 	}
 	return r
+}
+
+// rowActions — the actions a row shows; hidden ones leave the cell empty.
+func rowActions[T any](item T, actions ...Action[T]) []RowAction {
+	out := make([]RowAction, 0, len(actions))
+	for _, a := range actions {
+		if a.Hide == nil || !a.Hide(item) {
+			out = append(out, a.rowAction(item))
+		}
+	}
+	return out
 }
 
 func (f Field[T]) inList() bool { return !f.EditOnly }
@@ -358,14 +370,10 @@ func (rs Resource[T]) List(items []T, total int, p gojiffy.Paging, s gojiffy.Sea
 			cells = append(cells, cell)
 		}
 		for _, a := range own {
-			cells = append(cells, Cell{Actions: []RowAction{a.rowAction(row)}})
+			cells = append(cells, Cell{Actions: rowActions(row, a)})
 		}
 		if len(menu) > 0 {
-			actions := make([]RowAction, 0, len(menu))
-			for _, a := range menu {
-				actions = append(actions, a.rowAction(row))
-			}
-			cells = append(cells, Cell{Actions: actions})
+			cells = append(cells, Cell{Actions: rowActions(row, menu...)})
 		}
 		tbl.Rows = append(tbl.Rows, cells)
 	}

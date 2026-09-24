@@ -24,9 +24,13 @@ type FieldView struct {
 // Button — an action beside the form but carrying its own request: nested
 // forms are not allowed in HTML, so it is drawn as a separate form after the
 // main one.
+//
+// Link draws it as a plain link instead: for a page of its own, a form say,
+// rather than an action carried out at once. Confirm is ignored then.
 type Button struct {
 	Title, Action, Class string
 	Confirm              string // the confirmation text; empty asks nothing
+	Link                 bool
 }
 
 type FormView struct {
