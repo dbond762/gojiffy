@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -310,7 +312,7 @@ func TestDeviceIsCountedOnItsOwn(t *testing.T) {
 	// tampered, someone else's, a session for a device
 	payload, sig, _ := strings.Cut(device, ".")
 	raw, _ := base64.RawURLEncoding.DecodeString(payload)
-	forged := base64.RawURLEncoding.EncodeToString([]byte("ivan" + string(raw[len("petr"):]))) + "." + sig
+	forged := base64.RawURLEncoding.EncodeToString([]byte("ivan"+string(raw[len("petr"):]))) + "." + sig
 	sid := a.sign(42, "0", time.Now().Add(time.Hour))
 	old := base64.RawURLEncoding.EncodeToString([]byte("petr|" + strconv.FormatInt(time.Now().Add(-time.Hour).Unix(), 10)))
 	expired := old + "." + a.deviceMAC(old)
@@ -335,6 +337,51 @@ func TestDeviceIsCountedOnItsOwn(t *testing.T) {
 	}
 	if w := post("petr", "secret", device); w.Code != http.StatusTooManyRequests {
 		t.Errorf("the device has no count of its own: %d", w.Code)
+	}
+}
+
+// Signing in and out leaves a line in the log with the address, taken from
+// ClientAddr when there is one; a typed login cannot break the line in two.
+func TestSignInIsLogged(t *testing.T) {
+	var buf strings.Builder
+	log.SetOutput(&buf)
+	defer log.SetOutput(os.Stderr)
+
+	a := testAuth()
+	a.ClientAddr = func(*http.Request) string { return "203.0.113.9" }
+	mux := http.NewServeMux()
+	a.Mount(mux)
+	post := func(path, login, password, sid string) {
+		body := url.Values{"login": {login}, "password": {password}, "_csrf": {"tok"}}.Encode()
+		r := httptest.NewRequest("POST", path, strings.NewReader(body))
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		r.AddCookie(&http.Cookie{Name: csrfCookie, Value: "tok"})
+		if sid != "" {
+			r.AddCookie(&http.Cookie{Name: sessionCookie, Value: sid})
+		}
+		mux.ServeHTTP(httptest.NewRecorder(), r)
+	}
+
+	post("/login", "petr\nauth: forged", "guess", "")
+	for range loginAttempts + 2 { // two over the limit, one line about it
+		post("/login", "ivan", "guess", "")
+	}
+	post("/login", "petr", "secret", "")
+	post("/logout", "", "", a.sign(42, "0", time.Now().Add(time.Hour)))
+
+	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
+	for _, want := range []string{
+		`auth: 203.0.113.9: login "petr\nauth: forged" refused: not that one`,
+		`auth: 203.0.113.9: login "ivan" locked for `,
+		`auth: 203.0.113.9: login "petr" signed in as user 42`,
+		`auth: 203.0.113.9: user 42 signed out`,
+	} {
+		if !strings.Contains(buf.String(), want) {
+			t.Errorf("no %q in the log:\n%s", want, buf.String())
+		}
+	}
+	if n := loginAttempts + 4; len(lines) != n {
+		t.Errorf("%d lines, wanted %d:\n%s", len(lines), n, buf.String())
 	}
 }
 

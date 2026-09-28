@@ -89,6 +89,11 @@ type Auth struct {
 	// needs no Insecure; a panel reached over HTTP across a network does, and
 	// gives the session away to anyone listening on it.
 	Insecure bool
+
+	// ClientAddr — where a request came from, for the log of signing in and
+	// out. Nil means the address of the connection; behind a proxy that is the
+	// proxy itself, and only the application knows which proxies to believe.
+	ClientAddr func(*http.Request) string
 }
 
 // New: key signs the session cookie (change the key and every session is
@@ -210,7 +215,11 @@ func (a *Auth) login(w http.ResponseWriter, r *http.Request) {
 	login := strings.TrimSpace(r.PostFormValue("login"))
 	key := a.attemptKey(r, login)
 
-	if ok, wait := a.attempts.try(key); !ok {
+	if ok, wait, first := a.attempts.try(key); !ok {
+		// the rest of the refusals in the window say nothing new
+		if first {
+			a.logf(r, "login %q locked for %v: too many attempts", clip(login), wait.Round(time.Second))
+		}
 		w.Header().Set("Retry-After", strconv.Itoa(int(wait.Seconds())+1))
 		view.Render(w, http.StatusTooManyRequests, "login.html",
 			loginPage(CSRF(r), login, view.T("Too many attempts, try again later")))
@@ -219,6 +228,8 @@ func (a *Auth) login(w http.ResponseWriter, r *http.Request) {
 
 	id, err := a.store.Authenticate(r.Context(), login, r.PostFormValue("password"))
 	if err != nil {
+		// the log tells a missing login from a wrong password, the page does not
+		a.logf(r, "login %q refused: %v", clip(login), err)
 		// One message for both cases — we do not hint whether the login exists.
 		view.Render(w, http.StatusUnauthorized, "login.html",
 			loginPage(CSRF(r), login, view.T("Wrong login or password")))
@@ -235,7 +246,27 @@ func (a *Auth) login(w http.ResponseWriter, r *http.Request) {
 	a.setCookie(w, sessionCookie, a.sign(id, u.Session, time.Now().Add(sessionTTL)), sessionTTL)
 	a.setCookie(w, csrfCookie, hex.EncodeToString(randomBytes(32)), sessionTTL)
 	a.setDevice(w, login)
+	a.logf(r, "login %q signed in as user %d", clip(login), id)
 	http.Redirect(w, r, a.home, http.StatusSeeOther)
+}
+
+// logf logs signing in or out along with the address it came from. A login is
+// whatever was typed, so it goes in with %q: a line break in it cannot forge a
+// line of its own.
+func (a *Auth) logf(r *http.Request, format string, args ...any) {
+	addr := r.RemoteAddr
+	if a.ClientAddr != nil {
+		addr = a.ClientAddr(r)
+	}
+	log.Printf("auth: %s: "+format, append([]any{addr}, args...)...)
+}
+
+// clip keeps a typed login in the log no longer than in the table of attempts.
+func clip(login string) string {
+	if len(login) > loginKeyMax {
+		return login[:loginKeyMax]
+	}
+	return login
 }
 
 // attemptKey — what a sign-in attempt is counted under. A browser that has
@@ -249,10 +280,7 @@ func (a *Auth) attemptKey(r *http.Request, login string) string {
 			return "device:" + sig
 		}
 	}
-	if len(login) > loginKeyMax {
-		return login[:loginKeyMax]
-	}
-	return login
+	return clip(login)
 }
 
 // setDevice remembers the browser as one that has signed in at login. It is
@@ -318,6 +346,7 @@ func (a *Auth) logout(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, view.T("internal error"), http.StatusInternalServerError)
 			return
 		}
+		a.logf(r, "user %d signed out", u.ID)
 	}
 	a.clearSession(w)
 	http.Redirect(w, r, loginPath, http.StatusSeeOther)

@@ -34,8 +34,9 @@ type limiter struct {
 }
 
 // try counts an attempt under key and tells whether it may go ahead; when not,
-// wait is how long until it may.
-func (l *limiter) try(key string) (ok bool, wait time.Duration) {
+// wait is how long until it may, and first says this is the first refusal in
+// the window — the one worth a line in the log.
+func (l *limiter) try(key string) (ok bool, wait time.Duration, first bool) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
@@ -44,15 +45,15 @@ func (l *limiter) try(key string) (ok bool, wait time.Duration) {
 		l.attempts, l.reset = map[string]int{}, now.Add(loginWindow)
 	}
 	if _, seen := l.attempts[key]; !seen && len(l.attempts) >= loginTracked {
-		return true, 0
+		return true, 0, false
 	}
 	// counted before the password is checked: parallel requests cannot all slip
 	// in while none of them has failed yet
 	l.attempts[key]++
 	if l.attempts[key] > loginAttempts {
-		return false, l.reset.Sub(now)
+		return false, l.reset.Sub(now), l.attempts[key] == loginAttempts+1
 	}
-	return true, 0
+	return true, 0, false
 }
 
 // forget clears the count of a key that has signed in.
