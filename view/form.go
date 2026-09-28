@@ -16,8 +16,8 @@ type FieldView struct {
 	// Resource.WriteChoices; ValueText is how its Value reads.
 	Lookup, ValueText string
 	Required          bool
-	// Readonly rather than disabled: the value still reaches the server and
-	// does not break required, and whether to accept it is up to Parse.
+	// Readonly rather than disabled: the value is still shown and does not
+	// break required; the server ignores it, see Resource.Parse.
 	Readonly bool
 }
 

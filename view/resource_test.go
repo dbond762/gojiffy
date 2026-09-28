@@ -401,12 +401,25 @@ func TestNoSetLeavesTheRecordForParse(t *testing.T) {
 	}
 }
 
-// A readonly input only shows the value: a forged request does not change it.
+// A readonly input only shows the value: a forged request neither changes it
+// nor reaches the field's Parse or checks.
 func TestReadonlyIsNotTakenFromTheRequest(t *testing.T) {
-	rs := probeRes(Field[probe]{Name: "status", Readonly: func(p probe) bool { return p.Status == "locked" }})
-	p, _ := parse(rs, url.Values{"status": {"open"}}, probe{Status: "locked"}, false)
+	parsed := false
+	rs := probeRes(Field[probe]{
+		Name: "status", Required: true, Min: 5,
+		Readonly: func(p probe) bool { return p.Status == "locked" },
+		Parse:    func(*probe, string, bool) error { parsed = true; return nil },
+	})
+	p, errs := parse(rs, url.Values{"status": {"open"}}, probe{Status: "locked"}, false)
 	if p.Status != "locked" {
 		t.Errorf("Status = %q: a readonly field was taken from the request", p.Status)
+	}
+	if parsed || len(errs) > 0 {
+		t.Errorf("readonly field went through Parse (%v) or checks (%v)", parsed, errs)
+	}
+	// the same field, not readonly, is read as usual
+	if p, _ := parse(rs, url.Values{"status": {"opened"}}, probe{Status: "draft"}, false); p.Status != "opened" || !parsed {
+		t.Errorf("Status = %q, Parse called %v", p.Status, parsed)
 	}
 }
 

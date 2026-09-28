@@ -74,7 +74,7 @@ type Field[T any] struct {
 	Help     string // hint under the field
 	HelpEdit string // hint when editing, if it differs
 	Value    func(T) string
-	Readonly func(T) bool // true only shows the field; what to accept is still up to Parse
+	Readonly func(T) bool // true only shows the field: the request is not read for it at all
 	// Autofill — the autocomplete attribute of the input: what a browser or a
 	// password manager may fill in there ("username", "new-password", "off").
 	Autofill string
@@ -398,14 +398,15 @@ func (rs Resource[T]) List(items []T, total int, p gojiffy.Paging, s gojiffy.Sea
 // was typed, not with what was there before — except a value outside Choices:
 // that one was not typed but forged, and the record keeps what it had. A field
 // that fails a check does not get to Parse: one error per field is enough, and
-// the first is the one to fix.
+// the first is the one to fix. A readonly field is skipped whole — no value,
+// no checks, no Parse: whatever came for it was forged, the input only shows.
 //
 // store answers the LookupChoices fields and may be nil when there are none; the
 // error is the store's own, or a field with LookupChoices and no store to ask.
 func (rs Resource[T]) Parse(r *http.Request, store gojiffy.Chooser, item T, creating bool) (T, map[string]string, error) {
 	errs := map[string]string{}
 	for _, f := range rs.Fields {
-		if !f.inForm() {
+		if !f.inForm() || f.Readonly != nil && f.Readonly(item) {
 			continue
 		}
 		v := r.PostFormValue(f.Name)
@@ -423,8 +424,7 @@ func (rs Resource[T]) Parse(r *http.Request, store gojiffy.Chooser, item T, crea
 		}
 		// empty is what the form's own blank option sends when the field is not Required
 		offered := !choice || v == "" && !f.Required || slices.ContainsFunc(opts, func(o Option) bool { return o.Value == v })
-		// a readonly field is not taken from the request: the input only shows it
-		if offered && !f.NoSet && (f.Readonly == nil || !f.Readonly(item)) {
+		if offered && !f.NoSet {
 			set(&item, f.Name, v)
 		}
 		msg := f.check(v)
