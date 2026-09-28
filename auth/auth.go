@@ -33,7 +33,9 @@ import (
 const (
 	sessionCookie = "sid"
 	csrfCookie    = "csrf"
+	deviceCookie  = "device"
 	sessionTTL    = 24 * time.Hour
+	deviceTTL     = 90 * 24 * time.Hour
 
 	// The paths are fixed: the theme's templates know them (the sign-in form
 	// posts to /login, the button in the header to POST /logout), so both ends
@@ -206,8 +208,9 @@ func (a *Auth) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	login := strings.TrimSpace(r.PostFormValue("login"))
+	key := a.attemptKey(r, login)
 
-	if ok, wait := a.attempts.try(login); !ok {
+	if ok, wait := a.attempts.try(key); !ok {
 		w.Header().Set("Retry-After", strconv.Itoa(int(wait.Seconds())+1))
 		view.Render(w, http.StatusTooManyRequests, "login.html",
 			loginPage(CSRF(r), login, view.T("Too many attempts, try again later")))
@@ -221,7 +224,7 @@ func (a *Auth) login(w http.ResponseWriter, r *http.Request) {
 			loginPage(CSRF(r), login, view.T("Wrong login or password")))
 		return
 	}
-	a.attempts.forget(login)
+	a.attempts.forget(key)
 
 	u, err := a.store.User(r.Context(), id)
 	if err != nil {
@@ -231,7 +234,74 @@ func (a *Auth) login(w http.ResponseWriter, r *http.Request) {
 	}
 	a.setCookie(w, sessionCookie, a.sign(id, u.Session, time.Now().Add(sessionTTL)), sessionTTL)
 	a.setCookie(w, csrfCookie, hex.EncodeToString(randomBytes(32)), sessionTTL)
+	a.setDevice(w, login)
 	http.Redirect(w, r, a.home, http.StatusSeeOther)
+}
+
+// attemptKey — what a sign-in attempt is counted under. A browser that has
+// signed in at this login before carries a device cookie for it and is counted
+// on its own: whoever guesses at the login from elsewhere uses up the login's
+// count, not the owner's, and cannot lock them out. The key of a device is
+// longer than any login key, so the two never meet in the table.
+func (a *Auth) attemptKey(r *http.Request, login string) string {
+	if c, err := r.Cookie(deviceCookie); err == nil {
+		if l, sig, ok := a.verifyDevice(c.Value); ok && l == login {
+			return "device:" + sig
+		}
+	}
+	if len(login) > loginKeyMax {
+		return login[:loginKeyMax]
+	}
+	return login
+}
+
+// setDevice remembers the browser as one that has signed in at login. It is
+// not a session and gives no access: all it does is keep the browser off the
+// login's count, see attemptKey. It goes only to the sign-in form, and signing
+// out leaves it be. One per browser: signing in at another login replaces it.
+func (a *Auth) setDevice(w http.ResponseWriter, login string) {
+	payload := base64.RawURLEncoding.EncodeToString(
+		[]byte(login + "|" + strconv.FormatInt(time.Now().Add(deviceTTL).Unix(), 10)))
+	http.SetCookie(w, &http.Cookie{
+		Name:     deviceCookie,
+		Value:    payload + "." + a.deviceMAC(payload),
+		Path:     loginPath,
+		MaxAge:   int(deviceTTL.Seconds()),
+		HttpOnly: true,
+		Secure:   !a.Insecure,
+		SameSite: http.SameSiteLaxMode,
+	})
+}
+
+// verifyDevice gives back the login a device cookie was signed for and its
+// signature, if the cookie is ours and has not run out.
+func (a *Auth) verifyDevice(value string) (login, sig string, ok bool) {
+	payload, sig, found := strings.Cut(value, ".")
+	if !found || !hmac.Equal([]byte(sig), []byte(a.deviceMAC(payload))) {
+		return "", "", false
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(payload)
+	if err != nil {
+		return "", "", false
+	}
+	// the login goes first and may hold a | of its own
+	i := strings.LastIndex(string(raw), "|")
+	if i < 0 {
+		return "", "", false
+	}
+	exp, err := strconv.ParseInt(string(raw[i+1:]), 10, 64)
+	if err != nil || time.Now().After(time.Unix(exp, 0)) {
+		return "", "", false
+	}
+	return string(raw[:i]), sig, true
+}
+
+// deviceMAC signs a device cookie. The prefix keeps it apart from a session
+// signed with the same key: neither cookie passes for the other.
+func (a *Auth) deviceMAC(payload string) string {
+	mac := hmac.New(sha256.New, a.key)
+	mac.Write([]byte("device|" + payload))
+	return hex.EncodeToString(mac.Sum(nil))
 }
 
 func (a *Auth) logout(w http.ResponseWriter, r *http.Request) {

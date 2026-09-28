@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -260,6 +261,80 @@ func TestLoginLimit(t *testing.T) {
 	a.attempts.reset = time.Now().Add(-time.Second) // the window is over
 	if w := post("petr", "secret"); w.Code != http.StatusSeeOther {
 		t.Errorf("signing in after the window gave %d", w.Code)
+	}
+}
+
+// Someone guessing at a login uses up its count, but a browser that has signed
+// in there before is counted on its own and gets in; its own typos lock only
+// itself. A device cookie that was tampered with, belongs to another login or
+// passes for a session helps nobody.
+func TestDeviceIsCountedOnItsOwn(t *testing.T) {
+	a := testAuth()
+	mux := http.NewServeMux()
+	a.Mount(mux)
+	post := func(login, password, device string) *httptest.ResponseRecorder {
+		body := url.Values{"login": {login}, "password": {password}, "_csrf": {"tok"}}.Encode()
+		r := httptest.NewRequest("POST", "/login", strings.NewReader(body))
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		r.AddCookie(&http.Cookie{Name: csrfCookie, Value: "tok"})
+		if device != "" {
+			r.AddCookie(&http.Cookie{Name: deviceCookie, Value: device})
+		}
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, r)
+		return w
+	}
+
+	w := post("petr", "secret", "")
+	device := cookie(w.Result().Cookies(), deviceCookie)
+	if device == "" {
+		t.Fatal("signing in left no device cookie")
+	}
+	for _, c := range w.Result().Cookies() {
+		if c.Name == deviceCookie && (c.Path != "/login" || !c.HttpOnly || !c.Secure) {
+			t.Errorf("device cookie: path %q, HttpOnly %v, Secure %v", c.Path, c.HttpOnly, c.Secure)
+		}
+	}
+
+	// the owner's login locked from elsewhere
+	for range loginAttempts {
+		post("petr", "guess", "")
+	}
+	if w := post("petr", "secret", ""); w.Code != http.StatusTooManyRequests {
+		t.Fatalf("login count not used up: %d", w.Code)
+	}
+	if w := post("petr", "secret", device); w.Code != http.StatusSeeOther {
+		t.Errorf("the owner's browser was locked out along: %d", w.Code)
+	}
+
+	// tampered, someone else's, a session for a device
+	payload, sig, _ := strings.Cut(device, ".")
+	raw, _ := base64.RawURLEncoding.DecodeString(payload)
+	forged := base64.RawURLEncoding.EncodeToString([]byte("ivan" + string(raw[len("petr"):]))) + "." + sig
+	sid := a.sign(42, "0", time.Now().Add(time.Hour))
+	old := base64.RawURLEncoding.EncodeToString([]byte("petr|" + strconv.FormatInt(time.Now().Add(-time.Hour).Unix(), 10)))
+	expired := old + "." + a.deviceMAC(old)
+	for name, d := range map[string]string{"tampered": forged, "session": sid, "expired": expired} {
+		if w := post("petr", "secret", d); w.Code != http.StatusTooManyRequests {
+			t.Errorf("%s device cookie got past the login count: %d", name, w.Code)
+		}
+	}
+	for range loginAttempts {
+		post("ivan", "guess", "")
+	}
+	if w := post("ivan", "guess", device); w.Code != http.StatusTooManyRequests {
+		t.Errorf("a device of petr let ivan past his count: %d", w.Code)
+	}
+	if _, _, err := a.verify(device); err == nil {
+		t.Error("a device cookie passes for a session")
+	}
+
+	// the device's own typos lock the device
+	for range loginAttempts {
+		post("petr", "typo", device)
+	}
+	if w := post("petr", "secret", device); w.Code != http.StatusTooManyRequests {
+		t.Errorf("the device has no count of its own: %d", w.Code)
 	}
 }
 

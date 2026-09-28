@@ -9,7 +9,8 @@ import (
 // window, after that the login is refused until the window ends, without the
 // store being asked at all. Every login counts, existing or not, so a refusal
 // tells nothing about which ones exist. Signing in successfully clears the
-// login's count: a few typos before it do not pile up.
+// login's count: a few typos before it do not pile up. A browser that has
+// signed in at the login before has a count of its own, see Auth.attemptKey.
 const (
 	loginAttempts = 5
 	loginWindow   = 15 * time.Minute
@@ -25,17 +26,16 @@ const (
 // ponytail: in-process and per login only. Several replicas need a shared
 // store; a table filled with loginTracked junk logins lets new logins through
 // uncounted until the window ends, and spraying one password over many logins
-// is not caught at all — both are for a per-address limit on the proxy in
-// front.
+// is not caught at all — both are for a per-address limit in front.
 type limiter struct {
 	mu       sync.Mutex
 	attempts map[string]int
 	reset    time.Time
 }
 
-// try counts an attempt at login and tells whether it may go ahead; when not,
+// try counts an attempt under key and tells whether it may go ahead; when not,
 // wait is how long until it may.
-func (l *limiter) try(login string) (ok bool, wait time.Duration) {
+func (l *limiter) try(key string) (ok bool, wait time.Duration) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
@@ -43,7 +43,6 @@ func (l *limiter) try(login string) (ok bool, wait time.Duration) {
 	if now.After(l.reset) {
 		l.attempts, l.reset = map[string]int{}, now.Add(loginWindow)
 	}
-	key := limiterKey(login)
 	if _, seen := l.attempts[key]; !seen && len(l.attempts) >= loginTracked {
 		return true, 0
 	}
@@ -56,16 +55,9 @@ func (l *limiter) try(login string) (ok bool, wait time.Duration) {
 	return true, 0
 }
 
-// forget clears the count of a login that has signed in.
-func (l *limiter) forget(login string) {
+// forget clears the count of a key that has signed in.
+func (l *limiter) forget(key string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	delete(l.attempts, limiterKey(login))
-}
-
-func limiterKey(login string) string {
-	if len(login) > loginKeyMax {
-		return login[:loginKeyMax]
-	}
-	return login
+	delete(l.attempts, key)
 }
