@@ -1,3 +1,11 @@
+// Package view draws the admin panel. A Resource describes an entity's fields
+// once and gives the list (ListBlock), the form (Form, FormBlock) and the
+// parsing of what was sent (Parse, ParseSearch, ParseOrder). Handler builds a
+// page from blocks inside the frame every page shares (Page).
+//
+// Templates come from a theme, themes/TailAdmin unless SetTheme or Override
+// says otherwise. The plain data types here — Table, ListView, FormView,
+// Page and the rest — are what the theme's templates are given.
 package view
 
 import (

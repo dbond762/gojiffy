@@ -2,6 +2,7 @@ package view
 
 // Data for partials/form.html and partials/field.html — prepared by Form.View.
 
+// Option — one choice of a <select>.
 type Option struct {
 	Value, Label string
 	Selected     bool
@@ -33,6 +34,8 @@ type Button struct {
 	Link                 bool
 }
 
+// FormView — a whole form: where it is sent, its fields and the buttons beside
+// it. Error is shown above the fields, for what belongs to no one field.
 type FormView struct {
 	Action, Submit, CancelURL string
 	// CSRF is filled in when the form goes onto a page. Sign-in fills it

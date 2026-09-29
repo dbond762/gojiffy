@@ -8,14 +8,17 @@ type Lister[M any] interface {
 	List(ctx context.Context, s Search, o Order, p Paging) ([]M, int, error)
 }
 
+// Getter — one record by its id.
 type Getter[M any] interface {
 	Get(ctx context.Context, id int) (M, error)
 }
 
+// Creator — a new record; the id it was given comes back.
 type Creator[M any] interface {
 	Create(ctx context.Context, m M) (int, error)
 }
 
+// Updater — a record saved over the one with the same id.
 type Updater[M any] interface {
 	Update(ctx context.Context, m M) error
 }
@@ -51,6 +54,9 @@ type Deleter interface {
 	Delete(ctx context.Context, id int) error
 }
 
+// Store — everything a section of the admin panel does with its records.
+// Each part is its own interface, so a function asks only for what it uses:
+// ListBlock takes a Lister.
 type Store[M any] interface {
 	Lister[M]
 	Getter[M]

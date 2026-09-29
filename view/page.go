@@ -1,12 +1,12 @@
 package view
 
-// Page — the common wrapper of layout.html: header, sidebar, breadcrumbs.
 // MenuItem — one entry of the side menu.
 type MenuItem struct {
 	Link
 	Active bool
 }
 
+// Page — the common wrapper of layout.html: header, sidebar, breadcrumbs.
 type Page struct {
 	Title string
 	// UserName — the caption in the header. Not a user model: the application

@@ -39,6 +39,8 @@ type Cell struct {
 	Actions           []RowAction
 }
 
+// Table — a list as drawn: its columns with their filters and sorting, and
+// the cells row by row.
 type Table struct {
 	Columns []Column
 	Rows    [][]Cell
