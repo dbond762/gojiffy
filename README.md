@@ -445,3 +445,9 @@ view.SetAppName("Name")
 Templates take it through the `{{app}}` function rather than from the page's
 data: there is one name per process but many pages, and sign-in is drawn
 without the common frame at all. Unset, it is `Admin`.
+
+## License
+
+Copyright 2026 Dmytro Bondarenko. Licensed under the
+[Apache License, Version 2.0](LICENSE); see [NOTICE](NOTICE). The TailAdmin
+markup in `themes/TailAdmin` is under its own MIT license.
