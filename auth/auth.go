@@ -34,8 +34,12 @@ const (
 	sessionCookie = "sid"
 	csrfCookie    = "csrf"
 	deviceCookie  = "device"
+
+	// what New puts in the Auth fields of the same name
 	sessionTTL    = 24 * time.Hour
 	deviceTTL     = 90 * 24 * time.Hour
+	loginAttempts = 5
+	loginWindow   = 15 * time.Minute
 
 	// The paths are fixed: the theme's templates know them (the sign-in form
 	// posts to /login, the button in the header to POST /logout), so both ends
@@ -94,15 +98,31 @@ type Auth struct {
 	// out. Nil means the address of the connection; behind a proxy that is the
 	// proxy itself, and only the application knows which proxies to believe.
 	ClientAddr func(*http.Request) string
+
+	// SessionTTL — how long a session lasts after signing in; 24 hours by
+	// default.
+	SessionTTL time.Duration
+	// DeviceTTL — how long a browser that has signed in keeps a count of its
+	// own at the login, see attemptKey; 90 days by default.
+	DeviceTTL time.Duration
+	// LoginAttempts tries at one login in LoginWindow, after that it is refused
+	// until the window ends; 5 in 15 minutes by default, see limit.go.
+	LoginAttempts int
+	LoginWindow   time.Duration
 }
 
 // New: key signs the session cookie (change the key and every session is
-// gone), home is where to send someone after signing in, empty means "/".
+// gone), home is where to send someone after signing in, empty means "/". The
+// exported fields hold the defaults; change them before Mount.
 func New(store Store, key []byte, home string) *Auth {
 	if home == "" {
 		home = "/"
 	}
-	return &Auth{store: store, key: key, home: home}
+	return &Auth{
+		store: store, key: key, home: home,
+		SessionTTL: sessionTTL, DeviceTTL: deviceTTL,
+		LoginAttempts: loginAttempts, LoginWindow: loginWindow,
+	}
 }
 
 // Mount hangs sign-in and sign-out on the mux. They sit outside Require: there
@@ -202,7 +222,7 @@ func (a *Auth) loginForm(w http.ResponseWriter, r *http.Request) {
 	token := CSRF(r)
 	if token == "" {
 		token = hex.EncodeToString(randomBytes(32))
-		a.setCookie(w, csrfCookie, token, sessionTTL)
+		a.setCookie(w, csrfCookie, token, a.SessionTTL)
 	}
 	view.Render(w, http.StatusOK, "login.html", loginPage(token, "", ""))
 }
@@ -215,7 +235,7 @@ func (a *Auth) login(w http.ResponseWriter, r *http.Request) {
 	login := strings.TrimSpace(r.PostFormValue("login"))
 	key := a.attemptKey(r, login)
 
-	if ok, wait, first := a.attempts.try(key); !ok {
+	if ok, wait, first := a.attempts.try(key, a.LoginAttempts, a.LoginWindow); !ok {
 		// the rest of the refusals in the window say nothing new
 		if first {
 			a.logf(r, "login %q locked for %v: too many attempts", clip(login), wait.Round(time.Second))
@@ -243,8 +263,8 @@ func (a *Auth) login(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, view.T("internal error"), http.StatusInternalServerError)
 		return
 	}
-	a.setCookie(w, sessionCookie, a.sign(id, u.Session, time.Now().Add(sessionTTL)), sessionTTL)
-	a.setCookie(w, csrfCookie, hex.EncodeToString(randomBytes(32)), sessionTTL)
+	a.setCookie(w, sessionCookie, a.sign(id, u.Session, time.Now().Add(a.SessionTTL)), a.SessionTTL)
+	a.setCookie(w, csrfCookie, hex.EncodeToString(randomBytes(32)), a.SessionTTL)
 	a.setDevice(w, login)
 	a.logf(r, "login %q signed in as user %d", clip(login), id)
 	http.Redirect(w, r, a.home, http.StatusSeeOther)
@@ -289,12 +309,12 @@ func (a *Auth) attemptKey(r *http.Request, login string) string {
 // out leaves it be. One per browser: signing in at another login replaces it.
 func (a *Auth) setDevice(w http.ResponseWriter, login string) {
 	payload := base64.RawURLEncoding.EncodeToString(
-		[]byte(login + "|" + strconv.FormatInt(time.Now().Add(deviceTTL).Unix(), 10)))
+		[]byte(login + "|" + strconv.FormatInt(time.Now().Add(a.DeviceTTL).Unix(), 10)))
 	http.SetCookie(w, &http.Cookie{
 		Name:     deviceCookie,
 		Value:    payload + "." + a.deviceMAC(payload),
 		Path:     loginPath,
-		MaxAge:   int(deviceTTL.Seconds()),
+		MaxAge:   int(a.DeviceTTL.Seconds()),
 		HttpOnly: true,
 		Secure:   !a.Insecure,
 		SameSite: http.SameSiteLaxMode,

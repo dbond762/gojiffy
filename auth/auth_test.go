@@ -266,6 +266,37 @@ func TestLoginLimit(t *testing.T) {
 	}
 }
 
+// The application's settings replace the defaults: the lifetimes of the
+// session and device cookies and the number of attempts at a login.
+func TestSettingsReplaceDefaults(t *testing.T) {
+	a := testAuth()
+	a.SessionTTL, a.DeviceTTL, a.LoginAttempts = time.Hour, 48*time.Hour, 2
+	mux := http.NewServeMux()
+	a.Mount(mux)
+	post := func(password string) *httptest.ResponseRecorder {
+		body := url.Values{"login": {"petr"}, "password": {password}, "_csrf": {"tok"}}.Encode()
+		r := httptest.NewRequest("POST", "/login", strings.NewReader(body))
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		r.AddCookie(&http.Cookie{Name: csrfCookie, Value: "tok"})
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, r)
+		return w
+	}
+
+	want := map[string]int{sessionCookie: 3600, csrfCookie: 3600, deviceCookie: 48 * 3600}
+	for _, c := range post("secret").Result().Cookies() {
+		if c.MaxAge != want[c.Name] {
+			t.Errorf("cookie %s lives %d s, expected %d", c.Name, c.MaxAge, want[c.Name])
+		}
+	}
+	for range 2 {
+		post("guess")
+	}
+	if w := post("secret"); w.Code != http.StatusTooManyRequests {
+		t.Errorf("third attempt gave %d, expected 429", w.Code)
+	}
+}
+
 // Someone guessing at a login uses up its count, but a browser that has signed
 // in there before is counted on its own and gets in; its own typos lock only
 // itself. A device cookie that was tampered with, belongs to another login or

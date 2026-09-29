@@ -5,15 +5,13 @@ import (
 	"time"
 )
 
-// Guessing a password is slowed down per login: loginAttempts tries in a
-// window, after that the login is refused until the window ends, without the
-// store being asked at all. Every login counts, existing or not, so a refusal
-// tells nothing about which ones exist. Signing in successfully clears the
+// Guessing a password is slowed down per login: Auth.LoginAttempts tries in
+// Auth.LoginWindow, after that the login is refused until the window ends,
+// without the store being asked at all. Every login counts, existing or not, so
+// a refusal tells nothing about which ones exist. Signing in successfully clears the
 // login's count: a few typos before it do not pile up. A browser that has
 // signed in at the login before has a count of its own, see Auth.attemptKey.
 const (
-	loginAttempts = 5
-	loginWindow   = 15 * time.Minute
 	// the table is kept within bounds whatever is typed into the form
 	loginTracked = 100_000
 	loginKeyMax  = 64
@@ -33,16 +31,17 @@ type limiter struct {
 	reset    time.Time
 }
 
-// try counts an attempt under key and tells whether it may go ahead; when not,
+// try counts an attempt under key, max of them in a window, and tells whether
+// it may go ahead; when not,
 // wait is how long until it may, and first says this is the first refusal in
 // the window — the one worth a line in the log.
-func (l *limiter) try(key string) (ok bool, wait time.Duration, first bool) {
+func (l *limiter) try(key string, max int, window time.Duration) (ok bool, wait time.Duration, first bool) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
 	now := time.Now()
 	if now.After(l.reset) {
-		l.attempts, l.reset = map[string]int{}, now.Add(loginWindow)
+		l.attempts, l.reset = map[string]int{}, now.Add(window)
 	}
 	if _, seen := l.attempts[key]; !seen && len(l.attempts) >= loginTracked {
 		return true, 0, false
@@ -50,8 +49,8 @@ func (l *limiter) try(key string) (ok bool, wait time.Duration, first bool) {
 	// counted before the password is checked: parallel requests cannot all slip
 	// in while none of them has failed yet
 	l.attempts[key]++
-	if l.attempts[key] > loginAttempts {
-		return false, l.reset.Sub(now), l.attempts[key] == loginAttempts+1
+	if l.attempts[key] > max {
+		return false, l.reset.Sub(now), l.attempts[key] == max+1
 	}
 	return true, 0, false
 }
