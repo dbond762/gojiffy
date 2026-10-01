@@ -380,3 +380,23 @@ func TestCRUDStoreForShortOfTheSection(t *testing.T) {
 		t.Errorf("delete through a store with no Delete: code %d", w.Code)
 	}
 }
+
+// Creating and editing may ask for permissions of their own, as deleting does;
+// the list asks for the one Mount was given.
+func TestCRUDPermissionsPerPart(t *testing.T) {
+	store := &notes{rows: map[int]note{1: {ID: 1, Title: "one"}}, next: 1}
+	h, c := section(store, "notes")
+	c.CreatePerm, c.EditPerm = "notes.create", "notes.edit"
+
+	if w := do(h, "GET", "/notes", nil, ""); w.Code != http.StatusOK {
+		t.Errorf("the list under the section's permission: code %d", w.Code)
+	}
+	for _, req := range [][2]string{{"GET", "/notes/new"}, {"POST", "/notes"}, {"GET", "/notes/1"}, {"POST", "/notes/1"}} {
+		if w := do(h, req[0], req[1], url.Values{"title": {"x"}}, ""); w.Code != http.StatusForbidden {
+			t.Errorf("%s %s without its permission: code %d, want 403", req[0], req[1], w.Code)
+		}
+	}
+	if store.rows[1].Title != "one" || len(store.rows) != 1 {
+		t.Errorf("a refused request reached the store: %+v", store.rows)
+	}
+}

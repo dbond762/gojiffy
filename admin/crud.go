@@ -87,22 +87,25 @@ type CRUD[T any] struct {
 	// the store's Delete.
 	AfterDelete func(*http.Request, T)
 
-	// DeletePerm — the permission deleting asks for; "" is the one Mount was given.
-	DeletePerm string
+	// CreatePerm, EditPerm and DeletePerm — the permissions creating, editing
+	// and deleting ask for; "" is the one Mount was given, which the list and
+	// the suggestions ask for always.
+	CreatePerm, EditPerm, DeletePerm string
 }
 
 // Guard lets a request through to a handler only with a permission;
 // auth.Auth.Can is one.
 type Guard func(perm string, next http.HandlerFunc) http.HandlerFunc
 
-// Mount puts the section at Resource.Path, every address under perm:
+// Mount puts the section at Resource.Path, every address under perm unless
+// the part has a permission of its own:
 //
 //	GET  /articles             the list
 //	GET  /articles/choices     suggestions of a field, see WriteChoices
-//	GET  /articles/new         create form
-//	POST /articles             create
-//	GET  /articles/{id}        edit form
-//	POST /articles/{id}        save
+//	GET  /articles/new         create form, under CreatePerm when set
+//	POST /articles             create, under CreatePerm when set
+//	GET  /articles/{id}        edit form, under EditPerm when set
+//	POST /articles/{id}        save, under EditPerm when set
 //	POST /articles/{id}/delete delete, under DeletePerm when set
 //
 // less what NoCreate, NoEdit and NoDelete leave out. A delete Action of the
@@ -128,22 +131,24 @@ func (c CRUD[T]) Mount(mux *http.ServeMux, can Guard, perm string) {
 			panic(fmt.Sprintf("admin: CRUD for %s: store %T has no %s", p, c.Store, lack))
 		}
 	}
-	del := c.DeletePerm
-	if del == "" {
-		del = perm
+	permFor := func(own string) string {
+		if own == "" {
+			return perm
+		}
+		return own
 	}
 	mux.HandleFunc("GET "+p, can(perm, view.Handler(c.Frame, c.List)))
 	mux.HandleFunc("GET "+p+"/choices", can(perm, c.Choices))
 	if !c.NoCreate {
-		mux.HandleFunc("GET "+p+"/new", can(perm, c.NewForm))
-		mux.HandleFunc("POST "+p, can(perm, c.Create))
+		mux.HandleFunc("GET "+p+"/new", can(permFor(c.CreatePerm), c.NewForm))
+		mux.HandleFunc("POST "+p, can(permFor(c.CreatePerm), c.Create))
 	}
 	if !c.NoEdit {
-		mux.HandleFunc("GET "+p+"/{id}", can(perm, c.Edit))
-		mux.HandleFunc("POST "+p+"/{id}", can(perm, c.Save))
+		mux.HandleFunc("GET "+p+"/{id}", can(permFor(c.EditPerm), c.Edit))
+		mux.HandleFunc("POST "+p+"/{id}", can(permFor(c.EditPerm), c.Save))
 	}
 	if !c.NoDelete {
-		mux.HandleFunc("POST "+p+"/{id}/delete", can(del, c.Delete))
+		mux.HandleFunc("POST "+p+"/{id}/delete", can(permFor(c.DeletePerm), c.Delete))
 	}
 }
 
