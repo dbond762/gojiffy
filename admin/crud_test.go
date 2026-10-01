@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/dbond762/gojiffy"
+	"github.com/dbond762/gojiffy/view"
 )
 
 type note struct {
@@ -398,5 +399,40 @@ func TestCRUDPermissionsPerPart(t *testing.T) {
 	}
 	if store.rows[1].Title != "one" || len(store.rows) != 1 {
 		t.Errorf("a refused request reached the store: %+v", store.rows)
+	}
+}
+
+// ResourceFor gives the section its address for this request: a nested one
+// is mounted by the pattern of its parent, and its links, redirects and trail
+// carry the parent that was asked for.
+func TestCRUDResourceForNests(t *testing.T) {
+	store := &notes{rows: map[int]note{}}
+	nested := Resource[note]{Path: "/books/{book_id}/notes", Title: "Notes", NewTitle: "New note",
+		Header: []HeaderLink{{Title: "New note", Href: "/new"}},
+		Fields: []Field[note]{{Name: "title", Caption: "Title", Text: func(n note) string { return n.Title }}}}
+	c := CRUD[note]{
+		Resource: nested,
+		ResourceFor: func(r *http.Request) Resource[note] {
+			rs := nested
+			rs.Path = "/books/" + r.PathValue("book_id") + "/notes"
+			rs.Href = func(n note) string { return rs.Path + "/" + strconv.Itoa(n.ID) }
+			rs.Crumbs = []view.Link{{Title: "Book " + r.PathValue("book_id"), Href: "/books"}}
+			return rs
+		},
+		Frame: frame,
+		Store: store,
+	}
+	mux := http.NewServeMux()
+	c.Mount(mux, func(_ string, next http.HandlerFunc) http.HandlerFunc { return next }, "notes")
+
+	body := do(mux, "GET", "/books/7/notes", nil, "").Body.String()
+	if !strings.Contains(body, `href="/books/7/notes/new"`) || !strings.Contains(body, "Book 7") {
+		t.Error("the list did not take its links and trail from the request")
+	}
+	if w := do(mux, "POST", "/books/7/notes", url.Values{"title": {"x"}}, ""); w.Header().Get("Location") != "/books/7/notes" {
+		t.Errorf("create led to %q, want the list of that book", w.Header().Get("Location"))
+	}
+	if w := do(mux, "POST", "/books/7/notes/1/delete", nil, ""); w.Header().Get("Location") != "/books/7/notes" {
+		t.Errorf("delete led to %q, want the list of that book", w.Header().Get("Location"))
 	}
 }

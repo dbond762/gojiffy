@@ -29,8 +29,23 @@ import (
 // depends on a parent — keeps its own handlers and uses the Resource directly;
 // the handlers here are methods too, for mounting one by one.
 type CRUD[T any] struct {
+	// Resource — the section as declared. Its Path is where Mount puts the
+	// section up and may hold wildcards of a parent: /authors/{author_id}/articles.
 	Resource Resource[T]
-	Frame    view.Frame
+	// ResourceFor — the Resource for this request instead, when it depends on
+	// it: a nested section has the parent's id in its Path, the parent in its
+	// Crumbs, and buttons only for those who may press them. Links, redirects
+	// and the trail come from it; Mount still takes the pattern from Resource.
+	//
+	//	ResourceFor: func(r *http.Request) admin.Resource[Article] {
+	//		a := authorFrom(r.Context())
+	//		rs := Articles()
+	//		rs.Path = "/authors/" + strconv.Itoa(a.ID) + "/articles"
+	//		rs.Crumbs = []view.Link{{Title: "Authors", Href: "/authors"}, {Title: a.Name}}
+	//		return rs
+	//	},
+	ResourceFor func(*http.Request) Resource[T]
+	Frame       view.Frame
 
 	// Store — the records of the section, the same for everyone who may see it.
 	// A list is all it has to give; what else it must do follows from what the
@@ -308,7 +323,7 @@ func (c CRUD[T]) Delete(w http.ResponseWriter, r *http.Request) {
 	if c.AfterDelete != nil {
 		c.AfterDelete(r, item)
 	}
-	http.Redirect(w, r, c.Resource.Path, http.StatusSeeOther)
+	http.Redirect(w, r, c.resource(r).Path, http.StatusSeeOther)
 }
 
 // get — the record the path names, as the store of this request sees it; a 404
@@ -344,10 +359,14 @@ func (c CRUD[T]) store(r *http.Request) gojiffy.Lister[T] {
 }
 
 func (c CRUD[T]) resource(r *http.Request) Resource[T] {
-	if c.Perms == nil {
-		return c.Resource
+	rs := c.Resource
+	if c.ResourceFor != nil {
+		rs = c.ResourceFor(r)
 	}
-	return c.Resource.For(c.Perms(r))
+	if c.Perms == nil {
+		return rs
+	}
+	return rs.For(c.Perms(r))
 }
 
 func (c CRUD[T]) newItem(r *http.Request) T {
