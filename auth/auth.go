@@ -6,7 +6,7 @@
 // password is stored and how permissions are worked out is the application's
 // business, and the library knows nothing about it.
 //
-//	a := auth.New(db, key, "/clients")
+//	a := auth.New(db, key, "/articles")
 //	a.Mount(mux)                        // GET/POST /login, POST /logout
 //	mux.Handle("/", a.Require(private)) // everything else needs a session
 package auth

@@ -91,7 +91,7 @@ type Field[T any] struct {
 	Errors FieldErrors
 
 	// The value goes into the string field of the record that Name refers to
-	// (status into Status, system_type into SystemType) before Parse is called,
+	// (status into Status, first_name into FirstName) before Parse is called,
 	// so a field that only stores what came in needs no Parse at all. Parse is
 	// for the rest: a date, a number, a rule of its own — and it may overwrite
 	// what was stored. NoSet leaves the record alone for Parse to decide, for a
@@ -181,8 +181,8 @@ type Link struct{ Title, Href string }
 //
 // Href is resolved against the resource's own Path when the list is drawn,
 // not when the resource is declared: a resource may still get its Path
-// filled in afterward, the way a client's tokens are given their own address
-// only once the client is known.
+// filled in afterward, the way an author's articles are given their own address
+// only once the author is known.
 type HeaderLink struct {
 	Title, Href string // Href, e.g. "/new", goes after Path
 	Permission  string // "" means anyone who sees the list
@@ -209,7 +209,7 @@ type Resource[T any] struct {
 	Header       []HeaderLink // buttons above the list, in order — see HeaderLink
 
 	// Crumbs — the trail above this resource, for one nested in another: the
-	// client a list of tokens belongs to. The list and the form put themselves
+	// author a list of articles belongs to. The list and the form put themselves
 	// after it, and a root resource leaves it empty. Like Path, it may be filled
 	// in once the parent is known.
 	Crumbs []Link
@@ -511,7 +511,7 @@ func or(s, def string) string {
 
 // set puts v into the string field of the record that name refers to: the
 // underscores dropped and the case ignored, so role_id finds RoleID as well as
-// system_type finds SystemType, embedded structs included. Anything that is
+// first_name finds FirstName, embedded structs included. Anything that is
 // not a string — a date, a number, a flag — is left for Parse to convert, and
 // so is a record that has no such field.
 func set[T any](item *T, name, v string) {
@@ -578,7 +578,7 @@ func (rs Resource[T]) Form(ctx context.Context, store gojiffy.Chooser, item T, c
 			if err != nil {
 				return FormView{}, err
 			}
-			// a value the store no longer offers — a deleted manager — shows as
+			// a value the store no longer offers — a deleted author — shows as
 			// nothing chosen, the way a select shows it
 			if i := slices.IndexFunc(opts, func(o Option) bool { return o.Value == fv.Value }); i >= 0 {
 				fv.ValueText = opts[i].Label
@@ -614,7 +614,7 @@ func (rs Resource[T]) Form(ctx context.Context, store gojiffy.Chooser, item T, c
 // without reading the page. A page that needs more — a notice above, buttons
 // beside, crumbs of its own — builds it out of Form, FormBlock and RenderPage.
 //
-//	rs.RenderForm(w, r, a.Frame, a.db.Users(), u, creating, errs)
+//	rs.RenderForm(w, r, app.Frame, db.Articles(), article, creating, errs)
 func (rs Resource[T]) RenderForm(w http.ResponseWriter, r *http.Request, frame Frame,
 	store gojiffy.Chooser, item T, creating bool, errs map[string]string) {
 
@@ -636,7 +636,7 @@ func (rs Resource[T]) RenderForm(w http.ResponseWriter, r *http.Request, frame F
 // not have, hides by For or does not look up this way is a 404 — the address
 // gives out nothing its page would not.
 //
-//	mux.HandleFunc("GET /clients/choices", func(w http.ResponseWriter, r *http.Request) {
+//	mux.HandleFunc("GET /articles/choices", func(w http.ResponseWriter, r *http.Request) {
 //		rs.For(perms).WriteChoices(w, r, store)
 //	})
 func (rs Resource[T]) WriteChoices(w http.ResponseWriter, r *http.Request, store gojiffy.Chooser) {
@@ -731,8 +731,8 @@ func (rs Resource[T]) ListBlock(r *http.Request, store gojiffy.Lister[T]) (Block
 // password, a computed field: the store hands out models, f makes records of
 // them.
 //
-//	view.MapList(rs, r, db.Users(), func(u models.User) UserForm {
-//		return UserForm{User: u}
+//	view.MapList(rs, r, db.Articles(), func(a Article) ArticleRow {
+//		return ArticleRow{Article: a, Words: len(strings.Fields(a.Text))}
 //	})
 func MapList[M, T any](rs Resource[T], r *http.Request, store gojiffy.Lister[M], f func(M) T) (Block, error) {
 	s, o, p := rs.ParseSearch(r), rs.ParseOrder(r), rs.Paging(r)

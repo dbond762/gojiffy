@@ -49,7 +49,7 @@ func testAuth(perms ...string) *Auth {
 	for _, s := range perms {
 		p[s] = true
 	}
-	return New(&fakeStore{perms: p}, []byte("test-key"), "/clients")
+	return New(&fakeStore{perms: p}, []byte("test-key"), "/articles")
 }
 
 func TestSessionCookie(t *testing.T) {
@@ -147,7 +147,7 @@ func TestLoginFlow(t *testing.T) {
 	}
 
 	w = post("petr", "secret")
-	if w.Code != http.StatusSeeOther || w.Header().Get("Location") != "/clients" {
+	if w.Code != http.StatusSeeOther || w.Header().Get("Location") != "/articles" {
 		t.Fatalf("signing in gave %d to %q", w.Code, w.Header().Get("Location"))
 	}
 	sid := cookie(w.Result().Cookies(), sessionCookie)
@@ -160,7 +160,7 @@ func TestLoginFlow(t *testing.T) {
 	h := a.Require(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		got = UserFrom(r.Context())
 	}))
-	r := httptest.NewRequest("GET", "/clients", nil)
+	r := httptest.NewRequest("GET", "/articles", nil)
 	r.AddCookie(&http.Cookie{Name: sessionCookie, Value: sid})
 	w = httptest.NewRecorder()
 	h.ServeHTTP(w, r)
@@ -170,7 +170,7 @@ func TestLoginFlow(t *testing.T) {
 
 	// without a session — back to the sign-in form
 	w = httptest.NewRecorder()
-	h.ServeHTTP(w, httptest.NewRequest("GET", "/clients", nil))
+	h.ServeHTTP(w, httptest.NewRequest("GET", "/articles", nil))
 	if w.Code != http.StatusSeeOther || w.Header().Get("Location") != "/login" {
 		t.Errorf("no cookie gave %d to %q", w.Code, w.Header().Get("Location"))
 	}
@@ -184,7 +184,7 @@ func TestRequireChecksCSRF(t *testing.T) {
 		w.WriteHeader(http.StatusTeapot)
 	}))
 
-	r := httptest.NewRequest("POST", "/clients", strings.NewReader(""))
+	r := httptest.NewRequest("POST", "/articles", strings.NewReader(""))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	r.AddCookie(&http.Cookie{Name: sessionCookie, Value: a.sign(42, "0", time.Now().Add(time.Hour))})
 	w := httptest.NewRecorder()
@@ -203,15 +203,15 @@ func TestCan(t *testing.T) {
 		perms []string
 		want  int
 	}{
-		{[]string{"clients.list"}, http.StatusTeapot},
+		{[]string{"articles.list"}, http.StatusTeapot},
 		{[]string{"users.list"}, http.StatusForbidden},
 		{nil, http.StatusForbidden},
 	} {
 		a := testAuth(tc.perms...)
 		w := httptest.NewRecorder()
-		r := httptest.NewRequest("GET", "/clients", nil)
+		r := httptest.NewRequest("GET", "/articles", nil)
 		r.AddCookie(&http.Cookie{Name: sessionCookie, Value: a.sign(42, "0", time.Now().Add(time.Hour))})
-		a.Require(a.Can("clients.list", next)).ServeHTTP(w, r)
+		a.Require(a.Can("articles.list", next)).ServeHTTP(w, r)
 
 		if w.Code != tc.want {
 			t.Errorf("permissions %v gave %d, expected %d", tc.perms, w.Code, tc.want)
@@ -436,7 +436,7 @@ func TestSessionsEnd(t *testing.T) {
 	}
 	through := func(sid string) bool {
 		passed := false
-		r := httptest.NewRequest("GET", "/clients", nil)
+		r := httptest.NewRequest("GET", "/articles", nil)
 		r.AddCookie(&http.Cookie{Name: sessionCookie, Value: sid})
 		a.Require(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { passed = true })).
 			ServeHTTP(httptest.NewRecorder(), r)

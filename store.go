@@ -40,7 +40,7 @@ type ChoiceQuery struct {
 }
 
 // Chooser — a store that knows the values a field may take when they live in
-// the data rather than in code: roles, managers, the clients a user may see.
+// the data rather than in code: roles, authors, the articles a user may see.
 // field is the Name of the field; a name the store does not know is an error,
 // not an empty list — an empty list is a real answer a form would silently
 // accept.

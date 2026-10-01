@@ -60,7 +60,7 @@ request does not bring in.
 
 A field is parsed in order. The value is trimmed of spaces (`NoTrim` when
 spaces matter, as in a password) and put into the record's string field of the
-same name — `title` into `Title`, `system_type` into `SystemType`; then
+same name — `title` into `Title`, `first_name` into `FirstName`; then
 `Required`, `Min` and `Max` are checked (length in characters, and only for a
 non-empty value), and only then is `Parse` called, if there is one. So a field
 that just keeps what was typed needs no `Parse` at all; it is for dates,
@@ -97,13 +97,13 @@ record is made wider, and the store is brought up to it on the way into the
 list:
 
 ```go
-type UserForm struct {
-	models.User
-	Password string
+type ArticleRow struct {
+	Article
+	Words int // counted, not stored
 }
 
-view.MapList(rs, r, db.Users(), func(u models.User) UserForm {
-	return UserForm{User: u}
+view.MapList(rs, r, db.Articles(), func(a Article) ArticleRow {
+	return ArticleRow{Article: a, Words: len(strings.Fields(a.Text))}
 })
 ```
 
@@ -119,12 +119,12 @@ func (a *App) Frame(r *http.Request) (view.Page, error)
 
 // the whole list: filters, sorting and page from the request, records from the
 // store, a finished block out
-func (a *App) Clients(_ http.ResponseWriter, r *http.Request) (view.Block, error) {
+func (a *App) Articles(_ http.ResponseWriter, r *http.Request) (view.Block, error) {
 	u := auth.UserFrom(r.Context())
-	return resources.ClientsFor(u.Perms).ListBlock(r, a.db.Clients(u.ID))
+	return resources.ArticlesFor(u.Perms).ListBlock(r, a.db.Articles(u.ID))
 }
 
-mux.HandleFunc("GET /clients", view.Handler(a.Frame, a.Secret, a.Clients))
+mux.HandleFunc("GET /articles", view.Handler(a.Frame, a.Notice, a.Articles))
 ```
 
 `Component` is `func(http.ResponseWriter, *http.Request) (Block, error)`.
@@ -147,9 +147,9 @@ application's too; the theme knows nothing of it.
 ```go
 view.NoticeBlock(&view.Notice{
 	Kind:  view.Success,
-	Title: "Token created",
-	Text:  "Copy it and pass it on — it will not be shown again.",
-	HTML:  secretField(secret), // markup of your own on the theme's classes
+	Title: "Article published",
+	Text:  "Readers can see it now.",
+	HTML:  articleLink(id), // markup of your own on the theme's classes
 })
 ```
 
@@ -210,9 +210,9 @@ cookie and a permission check on a route. All it needs from the application is
 an `auth.Store`: check a login and password, and return a user by id.
 
 ```go
-a := auth.New(db, sessionKey, "/clients") // where to go after signing in
-a.Mount(mux)                              // GET/POST /login, POST /logout
-mux.Handle("/", a.Require(private))       // everything else needs a session
+a := auth.New(db, sessionKey, "/articles") // where to go after signing in
+a.Mount(mux)                               // GET/POST /login, POST /logout
+mux.Handle("/", a.Require(private))        // everything else needs a session
 
 private.HandleFunc("GET /users", a.Can("users.list", h.UsersList))
 ```

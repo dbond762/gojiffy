@@ -92,7 +92,7 @@ func TestEmptyListHasWordsOfItsOwn(t *testing.T) {
 		t.Error("an empty list says nothing at all")
 	}
 
-	rs.Empty = "no clients of that name"
+	rs.Empty = "no articles of that name"
 	if got := rs.List(nil, 0, gojiffy.Paging{Page: 1, PerPage: 20}, nil, gojiffy.Order{}).Table.Empty; got != rs.Empty {
 		t.Errorf("the default won over what the resource said: %q", got)
 	}
@@ -104,9 +104,9 @@ type account struct{ Login string }
 // with underscores, and a field that is not a string.
 type probe struct {
 	account
-	SystemType string
-	Status     string
-	Count      int
+	AuthorID string
+	Status   string
+	Count    int
 }
 
 func probeRes(fields ...Field[probe]) Resource[probe] {
@@ -161,32 +161,32 @@ func (c chooser) Choices(_ context.Context, field string, q gojiffy.ChoiceQuery)
 // hands out at most LookupLimit matches, and only for such a field.
 func TestLookupLimitAsksByWhatWasTyped(t *testing.T) {
 	rs := probeRes(Field[probe]{
-		Name: "system_type", LookupChoices: true, LookupLimit: 2,
-		Value: func(p probe) string { return p.SystemType },
+		Name: "author_id", LookupChoices: true, LookupLimit: 2,
+		Value: func(p probe) string { return p.AuthorID },
 	}, Field[probe]{Name: "login"})
-	store := chooser{"system_type": {
+	store := chooser{"author_id": {
 		{Value: "1", Label: "Olya"}, {Value: "2", Label: "Oleg"}, {Value: "3", Label: "Olena"}, {Value: "4", Label: "Petro"},
 	}}
 
-	fv, err := rs.Form(context.Background(), store, probe{SystemType: "4"}, false, nil)
+	fv, err := rs.Form(context.Background(), store, probe{AuthorID: "4"}, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if f := fv.Fields[0]; f.Lookup != "/x/choices?field=system_type" || f.Value != "4" || f.ValueText != "Petro" || f.Options != nil {
+	if f := fv.Fields[0]; f.Lookup != "/x/choices?field=author_id" || f.Value != "4" || f.ValueText != "Petro" || f.Options != nil {
 		t.Errorf("field: %+v", f)
 	}
-	gone, err := rs.Form(context.Background(), store, probe{SystemType: "9"}, false, nil)
+	gone, err := rs.Form(context.Background(), store, probe{AuthorID: "9"}, false, nil)
 	if f := gone.Fields[0]; err != nil || f.Value != "" || f.ValueText != "" {
 		t.Errorf("a value the store no longer offers: %+v, err %v — want nothing chosen", f, err)
 	}
 
-	p, errs, err := rs.Parse(post(url.Values{"system_type": {"9"}}), store, probe{SystemType: "4"}, false)
-	if err != nil || errs["system_type"] == "" || p.SystemType != "4" {
-		t.Errorf("a value outside the store: stored %q, errs %v, err %v", p.SystemType, errs, err)
+	p, errs, err := rs.Parse(post(url.Values{"author_id": {"9"}}), store, probe{AuthorID: "4"}, false)
+	if err != nil || errs["author_id"] == "" || p.AuthorID != "4" {
+		t.Errorf("a value outside the store: stored %q, errs %v, err %v", p.AuthorID, errs, err)
 	}
-	p, errs, err = rs.Parse(post(url.Values{"system_type": {"3"}}), store, probe{}, false)
-	if err != nil || len(errs) > 0 || p.SystemType != "3" {
-		t.Errorf("a value the store offers: stored %q, errs %v, err %v", p.SystemType, errs, err)
+	p, errs, err = rs.Parse(post(url.Values{"author_id": {"3"}}), store, probe{}, false)
+	if err != nil || len(errs) > 0 || p.AuthorID != "3" {
+		t.Errorf("a value the store offers: stored %q, errs %v, err %v", p.AuthorID, errs, err)
 	}
 
 	suggest := func(query string) *httptest.ResponseRecorder {
@@ -195,10 +195,10 @@ func TestLookupLimitAsksByWhatWasTyped(t *testing.T) {
 		return w
 	}
 	var got []gojiffy.Choice
-	if w := suggest("field=system_type&q=Ol"); json.Unmarshal(w.Body.Bytes(), &got) != nil || len(got) != 2 || got[0].Label != "Olya" {
+	if w := suggest("field=author_id&q=Ol"); json.Unmarshal(w.Body.Bytes(), &got) != nil || len(got) != 2 || got[0].Label != "Olya" {
 		t.Errorf("suggestions: %s", w.Body)
 	}
-	if w := suggest("field=system_type&q=Zz"); strings.TrimSpace(w.Body.String()) != "[]" {
+	if w := suggest("field=author_id&q=Zz"); strings.TrimSpace(w.Body.String()) != "[]" {
 		t.Errorf("nothing found: %q, want []", w.Body)
 	}
 	if w := suggest("field=login&q=Ol"); w.Code != http.StatusNotFound {
@@ -210,24 +210,24 @@ func TestLookupLimitAsksByWhatWasTyped(t *testing.T) {
 // that may stay empty gets a blank option to choose, and a store that cannot
 // answer — or no store at all — is an error rather than an empty select.
 func TestLookupChoicesAskTheStore(t *testing.T) {
-	rs := probeRes(Field[probe]{Name: "system_type", LookupChoices: true, Value: func(p probe) string { return p.SystemType }})
-	store := chooser{"system_type": {{Value: "win", Label: "Windows"}}}
+	rs := probeRes(Field[probe]{Name: "author_id", LookupChoices: true, Value: func(p probe) string { return p.AuthorID }})
+	store := chooser{"author_id": {{Value: "olya", Label: "Olya"}}}
 
-	fv, err := rs.Form(context.Background(), store, probe{SystemType: "win"}, false, nil)
+	fv, err := rs.Form(context.Background(), store, probe{AuthorID: "olya"}, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if o := fv.Fields[0].Options; len(o) != 2 || o[0].Value != "" || !o[1].Selected || o[1].Label != "Windows" {
-		t.Errorf("options: %+v, want the blank one and Windows selected", o)
+	if o := fv.Fields[0].Options; len(o) != 2 || o[0].Value != "" || !o[1].Selected || o[1].Label != "Olya" {
+		t.Errorf("options: %+v, want the blank one and Olya selected", o)
 	}
 
-	p, errs, err := rs.Parse(post(url.Values{"system_type": {"mac"}}), store, probe{SystemType: "win"}, false)
-	if err != nil || errs["system_type"] == "" || p.SystemType != "win" {
-		t.Errorf("a forged value: stored %q, errs %v, err %v", p.SystemType, errs, err)
+	p, errs, err := rs.Parse(post(url.Values{"author_id": {"oleg"}}), store, probe{AuthorID: "olya"}, false)
+	if err != nil || errs["author_id"] == "" || p.AuthorID != "olya" {
+		t.Errorf("a forged value: stored %q, errs %v, err %v", p.AuthorID, errs, err)
 	}
-	p, errs, err = rs.Parse(post(url.Values{"system_type": {""}}), store, probe{SystemType: "win"}, false)
-	if err != nil || len(errs) > 0 || p.SystemType != "" {
-		t.Errorf("the blank option: stored %q, errs %v, err %v", p.SystemType, errs, err)
+	p, errs, err = rs.Parse(post(url.Values{"author_id": {""}}), store, probe{AuthorID: "olya"}, false)
+	if err != nil || len(errs) > 0 || p.AuthorID != "" {
+		t.Errorf("the blank option: stored %q, errs %v, err %v", p.AuthorID, errs, err)
 	}
 
 	if _, err := rs.Form(context.Background(), nil, probe{}, false, nil); err == nil {
@@ -246,13 +246,13 @@ func TestLookupChoicesAskTheStore(t *testing.T) {
 func TestFilterIsChosen(t *testing.T) {
 	fixed := func(*probe) []Option { return []Option{{Value: "on"}, {Value: "off"}} }
 	store := chooser{
-		"system_type": {{Value: "1", Label: "Olya"}, {Value: "2", Label: "Oleg"}},
-		"login":       {{Value: "1", Label: "olya"}, {Value: "2", Label: "oleg"}},
+		"author_id": {{Value: "1", Label: "Olya"}, {Value: "2", Label: "Oleg"}},
+		"login":     {{Value: "1", Label: "olya"}, {Value: "2", Label: "oleg"}},
 	}
 	rs := probeRes(
 		Field[probe]{Name: "status", Search: true, Choices: fixed, Text: func(p probe) string { return p.Status }},
-		Field[probe]{Name: "system_type", ListOnly: true, Search: true, Filter: FilterLookup, LookupChoices: true, LookupLimit: 1,
-			Text: func(p probe) string { return p.SystemType }},
+		Field[probe]{Name: "author_id", ListOnly: true, Search: true, Filter: FilterLookup, LookupChoices: true, LookupLimit: 1,
+			Text: func(p probe) string { return p.AuthorID }},
 		Field[probe]{Name: "login", ListOnly: true, Search: true, Filter: FilterSelect, LookupChoices: true,
 			Text: func(p probe) string { return p.Login }},
 	)
@@ -266,11 +266,11 @@ func TestFilterIsChosen(t *testing.T) {
 		return b.Data.(ListView).Table
 	}
 
-	cols := get("search[system_type]=2&search[login]=1").Columns
+	cols := get("search[author_id]=2&search[login]=1").Columns
 	if cols[0].SearchOptions != nil || cols[0].Lookup != "" {
 		t.Errorf("choices without a Filter: %+v, want a text box", cols[0])
 	}
-	if c := cols[1]; c.Lookup != "/x/choices?field=system_type" || c.Query != "2" || c.QueryText != "Oleg" {
+	if c := cols[1]; c.Lookup != "/x/choices?field=author_id" || c.Query != "2" || c.QueryText != "Oleg" {
 		t.Errorf("lookup filter: %+v, want the label of the value picked", c)
 	}
 	if c := cols[2]; len(c.SearchOptions) != 3 || !c.SearchOptions[1].Selected {
@@ -278,7 +278,7 @@ func TestFilterIsChosen(t *testing.T) {
 	}
 
 	w := httptest.NewRecorder()
-	rs.WriteChoices(w, httptest.NewRequest("GET", "/x/choices?field=system_type&q=Ol", nil), store)
+	rs.WriteChoices(w, httptest.NewRequest("GET", "/x/choices?field=author_id&q=Ol", nil), store)
 	var got []gojiffy.Choice
 	if json.Unmarshal(w.Body.Bytes(), &got) != nil || len(got) != 1 {
 		t.Errorf("suggestions for a filter-only field: %s", w.Body)
@@ -292,20 +292,20 @@ func TestFilterIsChosen(t *testing.T) {
 	}
 }
 
-// A choice filter may look for records with nothing in the field — a client with
-// no manager: an option of its own right after All, in a select and a lookup
+// A choice filter may look for records with nothing in the field — an article with
+// no author: an option of its own right after All, in a select and a lookup
 // alike, and read without asking the store, which knows only values that exist.
 func TestFilterEmpty(t *testing.T) {
 	fixed := func(*probe) []Option { return []Option{{Value: "on"}} }
-	store := chooser{"system_type": {{Value: "1", Label: "Olya"}}}
+	store := chooser{"author_id": {{Value: "1", Label: "Olya"}}}
 	rs := probeRes(
 		Field[probe]{Name: "status", Search: true, Filter: FilterSelect, FilterEmpty: "nobody",
 			Choices: fixed, Text: func(p probe) string { return p.Status }},
-		Field[probe]{Name: "system_type", Search: true, Filter: FilterLookup, FilterEmpty: "nobody",
-			LookupChoices: true, LookupLimit: 5, Text: func(p probe) string { return p.SystemType }},
+		Field[probe]{Name: "author_id", Search: true, Filter: FilterLookup, FilterEmpty: "nobody",
+			LookupChoices: true, LookupLimit: 5, Text: func(p probe) string { return p.AuthorID }},
 	)
 
-	query := "search[status]=" + gojiffy.SearchEmpty + "&search[system_type]=" + gojiffy.SearchEmpty
+	query := "search[status]=" + gojiffy.SearchEmpty + "&search[author_id]=" + gojiffy.SearchEmpty
 	b, err := rs.ListBlock(httptest.NewRequest("GET", "/x?"+query, nil), listStore{store, lister{}})
 	if err != nil {
 		t.Fatal(err)
@@ -343,11 +343,11 @@ func TestReadonlyChoiceOffersOnlyItsValue(t *testing.T) {
 func TestParseStoresWithoutParse(t *testing.T) {
 	rs := probeRes(
 		Field[probe]{Name: "login"},
-		Field[probe]{Name: "system_type"},
+		Field[probe]{Name: "author_id"},
 		Field[probe]{Name: "status", NoTrim: true},
 		Field[probe]{Name: "count"},
 	)
-	values := url.Values{"login": {"  olya "}, "system_type": {"Windows"}, "status": {" on "}, "count": {"7"}}
+	values := url.Values{"login": {"  olya "}, "author_id": {"Olya"}, "status": {" on "}, "count": {"7"}}
 	p, errs := parse(rs, values, probe{Count: 3}, true)
 	if len(errs) > 0 {
 		t.Fatalf("errors: %v", errs)
@@ -355,8 +355,8 @@ func TestParseStoresWithoutParse(t *testing.T) {
 	if p.Login != "olya" {
 		t.Errorf("Login = %q: not trimmed, or not stored through the embedded struct", p.Login)
 	}
-	if p.SystemType != "Windows" {
-		t.Errorf("SystemType = %q: system_type did not find it", p.SystemType)
+	if p.AuthorID != "Olya" {
+		t.Errorf("AuthorID = %q: author_id did not find it", p.AuthorID)
 	}
 	if p.Status != " on " {
 		t.Errorf("Status = %q: NoTrim trimmed it anyway", p.Status)
@@ -583,17 +583,17 @@ func TestHeaderIsFilteredByPermission(t *testing.T) {
 	}
 }
 
-// A resource may still get its Path filled in after it was declared — a
-// client's tokens are given their own address only once the client is
+// A resource may still get its Path filled in after it was declared — an
+// author's articles are given their own address only once the author is
 // known — so Header's Href has to be resolved against Path as it stands when
 // the list is actually drawn, not when Header was written.
 func TestHeaderHrefFollowsPathSetLater(t *testing.T) {
 	rs := Resource[string]{Header: []HeaderLink{{Title: "New", Href: "/new"}}}
-	rs.Path = "/clients/7/tokens"
+	rs.Path = "/authors/7/articles"
 
 	header := rs.List(nil, 0, gojiffy.Paging{Page: 1, PerPage: 20}, nil, gojiffy.Order{}).Header
-	if len(header) != 1 || header[0].Href != "/clients/7/tokens/new" {
-		t.Fatalf("href = %+v, want /clients/7/tokens/new", header)
+	if len(header) != 1 || header[0].Href != "/authors/7/articles/new" {
+		t.Fatalf("href = %+v, want /authors/7/articles/new", header)
 	}
 }
 

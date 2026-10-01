@@ -10,11 +10,11 @@ var styles, scripts []string
 // SetStyle adds a stylesheet of the application, linked after the theme's.
 // Call it at startup, once per file, in the order they should be linked:
 //
-//	view.SetStyle("/assets/dashboard.css")
+//	view.SetStyle("/assets/site.css")
 func SetStyle(href string) { styles = append(styles, href) }
 
 // SetScript adds a script of the application. It goes at the end of the body,
 // so the markup it works on is already parsed by the time it runs.
 //
-//	view.SetScript("/assets/dashboard.js")
+//	view.SetScript("/assets/site.js")
 func SetScript(src string) { scripts = append(scripts, src) }

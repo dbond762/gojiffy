@@ -173,23 +173,23 @@ func TestNoticeFramesAppMarkup(t *testing.T) {
 // somewhere, and the theme is built without ever seeing it.
 func TestPageLinksApplicationFiles(t *testing.T) {
 	t.Cleanup(func() { styles, scripts = nil, nil })
-	SetStyle("/assets/dashboard.css")
-	SetScript("/assets/dashboard.js?v=3")
+	SetStyle("/assets/site.css")
+	SetScript("/assets/site.js?v=3")
 
 	w := httptest.NewRecorder()
 	Render(w, http.StatusOK, "page.html", Page{Title: "x"})
 	body := w.Body.String()
 
-	if !strings.Contains(body, `<link rel="stylesheet" href="/assets/dashboard.css">`) {
+	if !strings.Contains(body, `<link rel="stylesheet" href="/assets/site.css">`) {
 		t.Error("the stylesheet is not on the page")
 	}
-	if !strings.Contains(body, `<script src="/assets/dashboard.js?v=3"></script>`) {
+	if !strings.Contains(body, `<script src="/assets/site.js?v=3"></script>`) {
 		t.Error("the script is not on the page")
 	}
-	if strings.Index(body, "/assets/dashboard.css") < strings.Index(body, "/static/app.css") {
+	if strings.Index(body, "/assets/site.css") < strings.Index(body, "/static/app.css") {
 		t.Error("the stylesheet went in before the theme, so the theme overrides it")
 	}
-	if strings.Index(body, "/assets/dashboard.js") < strings.Index(body, "</main>") {
+	if strings.Index(body, "/assets/site.js") < strings.Index(body, "</main>") {
 		t.Error("the script went in before the markup it works on")
 	}
 }

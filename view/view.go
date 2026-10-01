@@ -99,7 +99,7 @@ type Frame func(*http.Request) (Page, error)
 
 // Handler draws a page out of components, in the order they are given.
 //
-//	mux.HandleFunc("GET /clients", Handler(app.Frame, app.Notice, app.ClientsList))
+//	mux.HandleFunc("GET /articles", Handler(app.Frame, app.Notice, app.ArticlesList))
 //
 // A block with no name is skipped, so a component with nothing to show returns
 // an empty one instead of a special case. The page title comes from the first
@@ -173,8 +173,8 @@ func draw(w http.ResponseWriter, r *http.Request, page Page, status int, blocks 
 		}
 		page.Blocks = append(page.Blocks, b)
 	}
-	// One trail serves a list and its form: the client above the tokens is a
-	// way back from a token, but only a label on the client's own list. A new
+	// One trail serves a list and its form: the author above the articles is a
+	// way back from an article, but only a label on the author's own list. A new
 	// slice, not the one handed in — that one may be a resource's own.
 	crumbs := make([]Link, len(page.Crumbs))
 	for i, c := range page.Crumbs {

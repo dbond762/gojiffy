@@ -22,25 +22,25 @@ func block(b Block) Component {
 // title comes from the first block that names one.
 func TestHandlerDrawsEveryBlock(t *testing.T) {
 	h := Handler(frame,
-		block(NoticeBlock(&Notice{Title: "the secret"})),
-		block(Block{Name: "list", Title: "Clients", Data: ListView{Title: "the client panel"}}),
+		block(NoticeBlock(&Notice{Title: "the notice"})),
+		block(Block{Name: "list", Title: "Articles", Data: ListView{Title: "the article panel"}}),
 	)
 
 	w := httptest.NewRecorder()
-	h.ServeHTTP(w, httptest.NewRequest("GET", "/clients", nil))
+	h.ServeHTTP(w, httptest.NewRequest("GET", "/articles", nil))
 	body := w.Body.String()
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("code %d", w.Code)
 	}
-	notice, list := strings.Index(body, "the secret"), strings.Index(body, "the client panel")
+	notice, list := strings.Index(body, "the notice"), strings.Index(body, "the article panel")
 	if notice < 0 || list < 0 {
 		t.Fatalf("a block did not reach the page: notice=%d list=%d", notice, list)
 	}
 	if notice > list {
 		t.Error("blocks are drawn out of order")
 	}
-	if !strings.Contains(body, "<title>Clients") {
+	if !strings.Contains(body, "<title>Articles") {
 		t.Error("the title did not come from the block")
 	}
 	if !strings.Contains(body, "Petr") {
@@ -53,7 +53,7 @@ func TestHandlerDrawsEveryBlock(t *testing.T) {
 func TestPageSecurityHeaders(t *testing.T) {
 	pages := map[string]*httptest.ResponseRecorder{"page": httptest.NewRecorder(), "sign-in": httptest.NewRecorder()}
 	Handler(frame, block(Block{Name: "list", Data: ListView{}})).
-		ServeHTTP(pages["page"], httptest.NewRequest("GET", "/clients", nil))
+		ServeHTTP(pages["page"], httptest.NewRequest("GET", "/articles", nil))
 	Render(pages["sign-in"], http.StatusOK, "login.html", FormView{})
 
 	for name, w := range pages {
@@ -82,7 +82,7 @@ func TestHandlerSkipsEmptyBlock(t *testing.T) {
 	h := Handler(frame, block(NoticeBlock(nil)), block(Block{Name: "list", Data: ListView{}}))
 
 	w := httptest.NewRecorder()
-	h.ServeHTTP(w, httptest.NewRequest("GET", "/clients", nil))
+	h.ServeHTTP(w, httptest.NewRequest("GET", "/articles", nil))
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("code %d", w.Code)
@@ -180,10 +180,10 @@ func TestCrumbToThisPageIsNotALink(t *testing.T) {
 // empty, the way a select does: an optional form field, and a filter with All.
 // A required field does not.
 func TestLookupOffersBlankWhenOptional(t *testing.T) {
-	store := chooser{"system_type": {{Value: "1", Label: "Olya"}}}
+	store := chooser{"author_id": {{Value: "1", Label: "Olya"}}}
 	field := Field[probe]{
-		Name: "system_type", LookupChoices: true, LookupLimit: 5, Search: true, Filter: FilterLookup,
-		Value: func(p probe) string { return p.SystemType }, Text: func(p probe) string { return p.SystemType },
+		Name: "author_id", LookupChoices: true, LookupLimit: 5, Search: true, Filter: FilterLookup,
+		Value: func(p probe) string { return p.AuthorID }, Text: func(p probe) string { return p.AuthorID },
 	}
 	form := func(required bool) string {
 		f := field
@@ -217,17 +217,17 @@ func TestHandlerStopsOnError(t *testing.T) {
 		return Block{}, errors.New("the database is silent")
 	}
 	h := Handler(frame,
-		block(Block{Name: "list", Data: ListView{Title: "Clients"}}),
+		block(Block{Name: "list", Data: ListView{Title: "Articles"}}),
 		broken,
 	)
 
 	w := httptest.NewRecorder()
-	h.ServeHTTP(w, httptest.NewRequest("GET", "/clients", nil))
+	h.ServeHTTP(w, httptest.NewRequest("GET", "/articles", nil))
 
 	if w.Code != http.StatusInternalServerError {
 		t.Fatalf("code %d", w.Code)
 	}
-	if strings.Contains(w.Body.String(), "Clients") {
+	if strings.Contains(w.Body.String(), "Articles") {
 		t.Error("half a page was sent")
 	}
 }
@@ -239,13 +239,13 @@ func TestRenderSkipsEmptyBlock(t *testing.T) {
 	w := httptest.NewRecorder()
 	Render(w, http.StatusOK, "page.html", Page{Title: "x", Blocks: []Block{
 		NoticeBlock(nil),
-		{Name: "list", Data: ListView{Title: "the client panel"}},
+		{Name: "list", Data: ListView{Title: "the article panel"}},
 	}})
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("code %d", w.Code)
 	}
-	if !strings.Contains(w.Body.String(), "the client panel") {
+	if !strings.Contains(w.Body.String(), "the article panel") {
 		t.Error("the page did not survive an empty block")
 	}
 }
@@ -257,8 +257,8 @@ func TestPageGivesFormsItsToken(t *testing.T) {
 	withToken := func(*http.Request) (Page, error) { return Page{CSRF: "tok123"}, nil }
 
 	w := httptest.NewRecorder()
-	RenderPage(w, httptest.NewRequest("GET", "/clients/1", nil), withToken, http.StatusOK,
-		"Client", nil, probeRes().FormBlock(FormView{Action: "/clients/1", Submit: "Save"}))
+	RenderPage(w, httptest.NewRequest("GET", "/articles/1", nil), withToken, http.StatusOK,
+		"Article", nil, probeRes().FormBlock(FormView{Action: "/articles/1", Submit: "Save"}))
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("code %d", w.Code)
