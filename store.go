@@ -1,6 +1,16 @@
 package gojiffy
 
-import "context"
+import (
+	"context"
+	"errors"
+)
+
+// ErrNotFound — what Get, Update and Delete return, wrapped or as is, for a
+// record that is not there — or not there for whoever asks: a store bounded by
+// the user hides someone else's record behind the same error. A handler answers
+// it with a 404. The library knows no database, so a store translates its own
+// "no rows" into this.
+var ErrNotFound = errors.New("not found")
 
 // Lister — one page of records, filtered and sorted the way the request asked,
 // and the total to page by.
