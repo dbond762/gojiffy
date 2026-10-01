@@ -1,4 +1,4 @@
-package view
+package admin
 
 import (
 	"context"

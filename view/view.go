@@ -1,7 +1,6 @@
-// Package view draws the admin panel. A Resource describes an entity's fields
-// once and gives the list (ListBlock), the form (Form, FormBlock) and the
-// parsing of what was sent (Parse, ParseSearch, ParseOrder). Handler builds a
-// page from blocks inside the frame every page shares (Page).
+// Package view draws the admin panel: Handler and RenderPage build a page from
+// blocks inside the frame every page shares (Page). What goes into the blocks —
+// a list, a form out of an entity's description — is package admin.
 //
 // Templates come from a theme, themes/TailAdmin unless SetTheme or Override
 // says otherwise. The plain data types here — Table, ListView, FormView,
@@ -165,7 +164,7 @@ func draw(w http.ResponseWriter, r *http.Request, page Page, status int, blocks 
 			page.Crumbs = b.Crumbs
 		}
 		// A form asks for the token no more than any other block does: the page
-		// holds it, and the form is told on the way in. Resource.Form has never
+		// holds it, and the form is told on the way in. admin.Resource.Form has never
 		// seen a request and cannot know it.
 		if v, ok := b.Data.(FormView); ok {
 			v.CSRF = page.CSRF

@@ -5,8 +5,6 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-
-	"github.com/dbond762/gojiffy"
 )
 
 func TestEveryLanguageHasAllKeys(t *testing.T) {
@@ -45,37 +43,6 @@ func TestShowingPlural(t *testing.T) {
 func TestUnknownKeyReturnsID(t *testing.T) {
 	if got := lib.T("no_such_key_here"); got != "no_such_key_here" {
 		t.Errorf("got %q", got)
-	}
-}
-
-// The library does not translate labels out of a resource description — they
-// arrive finished. The text below is deliberately not English: it stands for an
-// application writing in its own language, and it has to come out untouched.
-func TestResourceLabelsPassThrough(t *testing.T) {
-	rs := Resource[string]{
-		Title:     "Довільний заголовок",
-		EditTitle: func(string) string { return "Запис" },
-		NewTitle:  "Новий запис",
-		Empty:     "Порожньо",
-		Href:      func(string) string { return "/x" },
-		Fields: []Field[string]{{
-			Name: "v", Caption: "Значення", Help: "Підказка",
-			Text: func(s string) string { return s },
-		}},
-		Actions: []Action[string]{{Title: "Змінити", Href: func(string) string { return "/x" }}},
-	}
-
-	lv := rs.List([]string{"a"}, 1, gojiffy.Paging{Page: 1, PerPage: 20}, nil, gojiffy.Order{})
-	if lv.Title != rs.Title || lv.Table.Columns[0].Title != "Значення" {
-		t.Errorf("list headings changed: %q, %q", lv.Title, lv.Table.Columns[0].Title)
-	}
-	if got := lv.Table.Rows[0][1].Actions[0].Title; got != "Змінити" {
-		t.Errorf("the action caption changed: %q", got)
-	}
-
-	fv := form(rs, "a")
-	if fv.Title != rs.EditTitle("a") || fv.Fields[0].Label != "Значення" || fv.Fields[0].Help != "Підказка" {
-		t.Errorf("form labels changed: %+v", fv)
 	}
 }
 

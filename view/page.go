@@ -23,10 +23,13 @@ type Page struct {
 // to say — and Handler skips it.
 //
 // Names of partials do not belong in application code: take a block from
-// Resource.ListBlock, Resource.FormBlock or NoticeBlock.
+// admin.Resource.ListBlock, admin.Resource.FormBlock or NoticeBlock.
 type Block struct {
 	Name   string
 	Title  string // the page title, if this block is what sets it
 	Crumbs []Link // the trail in the header, if this block is what sets it
 	Data   any
 }
+
+// Link — a button in the panel header.
+type Link struct{ Title, Href string }

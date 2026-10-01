@@ -11,7 +11,8 @@ search.go paging.go perms.go   filters, sorting, pages, permissions
 store.go                       the contract of an entity's store
 i18n.go                        translation catalogue
 auth/                          sign-in, session, CSRF, permissions on a route
-view/                          Resource/Table/Form/Field + rendering
+admin/                         Resource, Field, Action, CRUD: sections out of a description
+view/                          rendering: pages, blocks, the data the templates get
 themes/TailAdmin/              the default look: templates and CSS
 ```
 
@@ -31,7 +32,7 @@ type Article struct {
 	Title string
 }
 
-var Articles = view.Resource[Article]{
+var Articles = admin.Resource[Article]{
 	Path:      "/articles",
 	Title:     "Articles",
 	EditTitle: func(a Article) string {
@@ -41,7 +42,7 @@ var Articles = view.Resource[Article]{
 		return "Article: " + a.Title
 	},
 	Href:      func(a Article) string { return "/articles/" + strconv.Itoa(a.ID) },
-	Fields: []view.Field[Article]{{
+	Fields: []admin.Field[Article]{{
 		Name:     "title",
 		Caption:  "Title",
 		Search:   true,
@@ -84,7 +85,7 @@ title of the create form once it is reached, and has nothing to do with the
 button.
 
 ```go
-Header: []view.HeaderLink{{Title: "New article", Href: "/new"}},
+Header: []admin.HeaderLink{{Title: "New article", Href: "/new"}},
 ```
 
 `Href` is resolved against `Path` when the list is drawn, not when the resource
@@ -102,7 +103,7 @@ type ArticleRow struct {
 	Words int // counted, not stored
 }
 
-view.MapList(rs, r, db.Articles(), func(a Article) ArticleRow {
+admin.MapList(rs, r, db.Articles(), func(a Article) ArticleRow {
 	return ArticleRow{Article: a, Words: len(strings.Fields(a.Text))}
 })
 ```
@@ -134,7 +135,7 @@ a block without a name is skipped, so "nothing to show" is a plain
 `view.Block{}` rather than a special case. An error from any of them is a 500
 and not a line of the page: it is assembled in a buffer.
 
-Ready-made blocks: `Resource.ListBlock` (a list), `view.FormBlock` (a form with
+Ready-made blocks: `admin.Resource.ListBlock` (a list), `admin.Resource.FormBlock` (a form with
 its panel and title), `view.NoticeBlock` (a notice; `nil` gives an empty
 block). Names of partials never appear in application code.
 
@@ -407,10 +408,10 @@ for them and cannot reach into someone else's — these strings are not
 translated at all, only printed as they are:
 
 ```go
-func Articles() view.Resource[Article] {
-	return view.Resource[Article]{
+func Articles() admin.Resource[Article] {
+	return admin.Resource[Article]{
 		Title:  "Articles",
-		Fields: []view.Field[Article]{{Caption: "Title"}},
+		Fields: []admin.Field[Article]{{Caption: "Title"}},
 	}
 }
 ```

@@ -7,7 +7,7 @@ type Search map[string]string
 
 // SearchEmpty — the search value asking for records where the field has no
 // value at all: an article with no author, say. A choice filter offers it under
-// the field's FilterEmpty (see view.Field); the store turns it into its own
+// the field's FilterEmpty (see admin.Field); the store turns it into its own
 // "is empty". No real value of a choice looks like it.
 const SearchEmpty = "_empty"
 

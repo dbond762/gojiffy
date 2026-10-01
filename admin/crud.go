@@ -1,4 +1,4 @@
-package view
+package admin
 
 import (
 	"errors"
@@ -8,6 +8,7 @@ import (
 	"strconv"
 
 	"github.com/dbond762/gojiffy"
+	"github.com/dbond762/gojiffy/view"
 )
 
 // CRUD — a whole section of the panel out of a Resource and a Store: the list,
@@ -15,7 +16,7 @@ import (
 // that looks up as you type. What sets one section apart from another is said
 // in the hooks; a section that needs none is a Resource, a Store and a Frame.
 //
-//	view.CRUD[Article]{Resource: Articles, Frame: app.Frame, Store: db.Articles()}.
+//	admin.CRUD[Article]{Resource: Articles, Frame: app.Frame, Store: db.Articles()}.
 //		Mount(mux, auth.Can, "articles.list")
 //
 // Editing parses the form over the record as it is stored, not over an empty
@@ -29,7 +30,7 @@ import (
 // the handlers here are methods too, for mounting one by one.
 type CRUD[T any] struct {
 	Resource Resource[T]
-	Frame    Frame
+	Frame    view.Frame
 
 	// Store — the records of the section, the same for everyone who may see it.
 	// A list is all it has to give; what else it must do follows from what the
@@ -121,17 +122,17 @@ func (c CRUD[T]) Mount(mux *http.ServeMux, can Guard, perm string) {
 	p := c.Resource.Path
 	switch {
 	case c.Store == nil && c.StoreFor == nil:
-		panic("view: CRUD for " + p + " has neither Store nor StoreFor")
+		panic("admin: CRUD for " + p + " has neither Store nor StoreFor")
 	case c.StoreFor == nil:
 		if lack := c.lacks(c.Store); lack != "" {
-			panic(fmt.Sprintf("view: CRUD for %s: store %T has no %s", p, c.Store, lack))
+			panic(fmt.Sprintf("admin: CRUD for %s: store %T has no %s", p, c.Store, lack))
 		}
 	}
 	del := c.DeletePerm
 	if del == "" {
 		del = perm
 	}
-	mux.HandleFunc("GET "+p, can(perm, Handler(c.Frame, c.List)))
+	mux.HandleFunc("GET "+p, can(perm, view.Handler(c.Frame, c.List)))
 	mux.HandleFunc("GET "+p+"/choices", can(perm, c.Choices))
 	if !c.NoCreate {
 		mux.HandleFunc("GET "+p+"/new", can(perm, c.NewForm))
@@ -171,13 +172,13 @@ func (c CRUD[T]) lacks(store any) string {
 func as[I any](w http.ResponseWriter, store any, method string) (I, bool) {
 	i, ok := store.(I)
 	if !ok {
-		serverError(w, fmt.Errorf("view: CRUD store %T has no %s", store, method))
+		serverError(w, fmt.Errorf("admin: CRUD store %T has no %s", store, method))
 	}
 	return i, ok
 }
 
-// List — the list as a block, to be drawn by Handler with other blocks around it.
-func (c CRUD[T]) List(_ http.ResponseWriter, r *http.Request) (Block, error) {
+// List — the list as a block, to be drawn by view.Handler with other blocks around it.
+func (c CRUD[T]) List(_ http.ResponseWriter, r *http.Request) (view.Block, error) {
 	return c.resource(r).ListBlock(r, c.store(r))
 }
 

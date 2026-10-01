@@ -1,4 +1,4 @@
-package view
+package admin
 
 import (
 	"context"
@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/dbond762/gojiffy"
+	"github.com/dbond762/gojiffy/view"
 )
 
 func rec(fields ...Field[string]) Resource[string] {
@@ -121,7 +122,7 @@ func post(values url.Values) *http.Request {
 
 // form and parse — the calls with no store: a test resource has no LookupChoices
 // field unless it says so, and then it calls Form or Parse itself.
-func form[T any](rs Resource[T], item T) FormView {
+func form[T any](rs Resource[T], item T) view.FormView {
 	fv, err := rs.Form(context.Background(), nil, item, false, nil)
 	if err != nil {
 		panic(err)
@@ -244,7 +245,7 @@ func TestLookupChoicesAskTheStore(t *testing.T) {
 // the label of the value a lookup filters by — and the address of suggestions
 // answers a filter that is not in the form at all.
 func TestFilterIsChosen(t *testing.T) {
-	fixed := func(*probe) []Option { return []Option{{Value: "on"}, {Value: "off"}} }
+	fixed := func(*probe) []view.Option { return []view.Option{{Value: "on"}, {Value: "off"}} }
 	store := chooser{
 		"author_id": {{Value: "1", Label: "Olya"}, {Value: "2", Label: "Oleg"}},
 		"login":     {{Value: "1", Label: "olya"}, {Value: "2", Label: "oleg"}},
@@ -258,12 +259,12 @@ func TestFilterIsChosen(t *testing.T) {
 	)
 	st := listStore{store, lister{}}
 
-	get := func(query string) Table {
+	get := func(query string) view.Table {
 		b, err := rs.ListBlock(httptest.NewRequest("GET", "/x?"+query, nil), st)
 		if err != nil {
 			t.Fatal(err)
 		}
-		return b.Data.(ListView).Table
+		return b.Data.(view.ListView).Table
 	}
 
 	cols := get("search[author_id]=2&search[login]=1").Columns
@@ -296,7 +297,7 @@ func TestFilterIsChosen(t *testing.T) {
 // no author: an option of its own right after All, in a select and a lookup
 // alike, and read without asking the store, which knows only values that exist.
 func TestFilterEmpty(t *testing.T) {
-	fixed := func(*probe) []Option { return []Option{{Value: "on"}} }
+	fixed := func(*probe) []view.Option { return []view.Option{{Value: "on"}} }
 	store := chooser{"author_id": {{Value: "1", Label: "Olya"}}}
 	rs := probeRes(
 		Field[probe]{Name: "status", Search: true, Filter: FilterSelect, FilterEmpty: "nobody",
@@ -310,7 +311,7 @@ func TestFilterEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cols := b.Data.(ListView).Table.Columns
+	cols := b.Data.(view.ListView).Table.Columns
 	if o := cols[0].SearchOptions; len(o) != 3 || o[1].Value != gojiffy.SearchEmpty || o[1].Label != "nobody" || !o[1].Selected {
 		t.Errorf("select: %+v, want All, then nobody selected, then the choices", o)
 	}
@@ -330,7 +331,7 @@ func TestReadonlyChoiceOffersOnlyItsValue(t *testing.T) {
 	rs := probeRes(Field[probe]{
 		Name: "status", Required: true, Value: func(p probe) string { return p.Status },
 		Readonly: func(probe) bool { return true },
-		Choices:  func(*probe) []Option { return []Option{{Value: "on"}, {Value: "off"}} },
+		Choices:  func(*probe) []view.Option { return []view.Option{{Value: "on"}, {Value: "off"}} },
 	})
 	if o := form(rs, probe{Status: "off"}).Fields[0].Options; len(o) != 1 || o[0].Value != "off" {
 		t.Errorf("options: %+v, want just off", o)
@@ -514,15 +515,15 @@ func TestFailedCheckSkipsParse(t *testing.T) {
 // record may take in the form, and nothing else accepted by Parse — asked with
 // the record as it came in, and a forged value not stored.
 func TestChoicesDriveFilterFormAndParse(t *testing.T) {
-	next := map[string][]Option{
+	next := map[string][]view.Option{
 		"pending": {{Value: "pending"}},
 		"active":  {{Value: "active"}, {Value: "off"}},
 	}
 	rs := probeRes(Field[probe]{
 		Name: "status", Search: true, Filter: FilterSelect, Required: true, Text: func(p probe) string { return p.Status },
-		Choices: func(p *probe) []Option {
+		Choices: func(p *probe) []view.Option {
 			if p == nil {
-				return []Option{{Value: "pending"}, {Value: "active"}, {Value: "off"}}
+				return []view.Option{{Value: "pending"}, {Value: "active"}, {Value: "off"}}
 			}
 			return next[p.Status]
 		},
@@ -640,7 +641,7 @@ func TestHideLeavesTheActionOffTheRow(t *testing.T) {
 	}
 
 	rows := rs.List([]string{"a", "b"}, 2, gojiffy.Paging{Page: 1, PerPage: 20}, nil, gojiffy.Order{}).Table.Rows
-	titles := func(c Cell) (out []string) {
+	titles := func(c view.Cell) (out []string) {
 		for _, a := range c.Actions {
 			out = append(out, a.Title)
 		}

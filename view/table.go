@@ -11,7 +11,7 @@ type Column struct {
 	Search        string // name of the search parameter, or "" for no filter
 	Query         string // what has been entered already
 	SearchOptions []Option
-	// Lookup — where the filter asks for suggestions, see Resource.WriteChoices;
+	// Lookup — where the filter asks for suggestions, see admin.Resource.WriteChoices;
 	// QueryText is how its Query reads.
 	Lookup, QueryText string
 	Empty             Option // a lookup's choice of records with nothing in the field, see Field.FilterEmpty; zero offers none
@@ -46,4 +46,12 @@ type Table struct {
 	Rows    [][]Cell
 	Empty   string // the text to show when there are no rows
 	Action  string // where the search form goes; "" draws no form
+}
+
+// ListView — what goes into the list.html template.
+type ListView struct {
+	Title  string
+	Header []Link
+	Table  Table
+	Footer ListFooter
 }
